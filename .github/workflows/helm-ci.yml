@@ -14,7 +14,10 @@ on:
     - .github/workflows/**
     - charts/**
 
-permissions: { }
+# `contents: read` explicitly: with the repository private, an empty
+# permission set leaves the checkout token unable to read it.
+permissions:
+  contents: read
 
 jobs:
   unittest:
@@ -40,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      contents: read
       security-events: write
     steps:
     - name: Checkout Repository

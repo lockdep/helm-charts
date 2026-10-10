@@ -9,7 +9,8 @@ on:
     - charts/**
   workflow_dispatch: { }
 
-permissions: { }
+permissions:
+  contents: read
 
 jobs:
   update-docs:
