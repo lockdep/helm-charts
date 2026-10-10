@@ -1,0 +1,141 @@
+suite: initializer
+release:
+  name: stackradar
+  namespace: sr-test
+set:
+  postgresql.enabled: false
+  database.existingSecret.name: my-db
+  secrets.existingSecret.name: my-secrets
+tests:
+  - it: disabled by default - no Jobs are rendered
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: server/initializer-job.yaml
+      - hasDocuments:
+          count: 0
+        template: client/initializer-job.yaml
+
+  - it: enabled - renders both Jobs as pre-install/pre-upgrade hooks
+    set:
+      initializer.enabled: true
+    asserts:
+      - isKind:
+          of: Job
+        template: server/initializer-job.yaml
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: "pre-install,pre-upgrade"
+        template: server/initializer-job.yaml
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "0"
+        template: server/initializer-job.yaml
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: "before-hook-creation"
+        template: server/initializer-job.yaml
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "1"
+        template: client/initializer-job.yaml
+
+  - it: enabled - the Jobs migrate and exit, and the app pods skip migration
+    set:
+      initializer.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MIGRATE_EXIT_AFTER
+            value: "true"
+        template: server/initializer-job.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MIGRATE_EXIT_AFTER
+            value: "true"
+        template: client/initializer-job.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MIGRATE_ON_START
+            value: "true"
+        template: server/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MIGRATE_ON_START
+            value: "true"
+        template: client/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOOTSTRAP_CLUSTER_ID
+          any: true
+        template: server/initializer-job.yaml
+
+  - it: enabled - uses the default ServiceAccount and no token
+    set:
+      initializer.enabled: true
+    template: server/initializer-job.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.serviceAccountName
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: enabled without database.existingSecret.name fails fast
+    set:
+      initializer.enabled: true
+      database.existingSecret.name: ""
+      database.url: "postgresql://u:p@h:5432/d?sslmode=require"
+    template: server/initializer-job.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "initializer.enabled requires database.existingSecret.name: the pre-install/pre-upgrade hook Job runs before chart-managed Secrets are created, so provision the connection string separately."
+
+  - it: enabled without secrets.existingSecret.name fails fast
+    set:
+      initializer.enabled: true
+      secrets.existingSecret.name: ""
+    template: server/initializer-job.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "initializer.enabled requires secrets.existingSecret.name"
+
+  - it: enabled with the bundled Postgres fails fast
+    set:
+      initializer.enabled: true
+      postgresql.enabled: true
+      database.existingSecret.name: ""
+    template: server/initializer-job.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "initializer.enabled is incompatible with the bundled Postgres"
+
+  - it: enabled - user annotations merge with the chart's hook annotations
+    set:
+      initializer.enabled: true
+      initializer.annotations.foo: bar
+    template: server/initializer-job.yaml
+    asserts:
+      - equal:
+          path: metadata.annotations.foo
+          value: bar
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: "pre-install,pre-upgrade"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: "before-hook-creation"
+
+  - it: enabled - user annotations can override chart hook annotations
+    values:
+      - values/initializer-annotations.yaml
+    template: server/initializer-job.yaml
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: "before-hook-creation,hook-succeeded"

@@ -1,0 +1,25 @@
+suite: extra manifests
+release:
+  name: stackradar
+  namespace: sr-test
+templates:
+  - extra-manifests.yaml
+tests:
+  - it: renders extraObjects through tpl
+    set:
+      extraObjects:
+        - apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: "{{ .Release.Name }}-extra"
+          data:
+            ns: "{{ .Release.Namespace }}"
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: stackradar-extra
+      - equal:
+          path: data.ns
+          value: sr-test

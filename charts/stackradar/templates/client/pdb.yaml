@@ -1,0 +1,26 @@
+{{- if .Values.client.pdb.enabled }}
+{{- $min := .Values.client.pdb.minAvailable }}
+{{- $max := .Values.client.pdb.maxUnavailable }}
+{{- if and (not (kindIs "invalid" $min)) (not (kindIs "invalid" $max)) }}
+{{- fail "client.pdb: minAvailable and maxUnavailable are mutually exclusive; set exactly one" }}
+{{- end }}
+{{- if and (kindIs "invalid" $min) (kindIs "invalid" $max) }}
+{{- fail "client.pdb.enabled requires either minAvailable or maxUnavailable" }}
+{{- end -}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "stackradar.client.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "client") | nindent 4 }}
+spec:
+  {{- if not (kindIs "invalid" $min) }}
+  minAvailable: {{ $min }}
+  {{- end }}
+  {{- if not (kindIs "invalid" $max) }}
+  maxUnavailable: {{ $max }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "client") | nindent 6 }}
+{{- end }}

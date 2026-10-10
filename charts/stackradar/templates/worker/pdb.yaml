@@ -1,0 +1,26 @@
+{{- if and (eq (include "stackradar.topology" .) "split") .Values.worker.pdb.enabled }}
+{{- $min := .Values.worker.pdb.minAvailable }}
+{{- $max := .Values.worker.pdb.maxUnavailable }}
+{{- if and (not (kindIs "invalid" $min)) (not (kindIs "invalid" $max)) }}
+{{- fail "worker.pdb: minAvailable and maxUnavailable are mutually exclusive; set exactly one" }}
+{{- end }}
+{{- if and (kindIs "invalid" $min) (kindIs "invalid" $max) }}
+{{- fail "worker.pdb.enabled requires either minAvailable or maxUnavailable" }}
+{{- end -}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "stackradar.worker.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "worker") | nindent 4 }}
+spec:
+  {{- if not (kindIs "invalid" $min) }}
+  minAvailable: {{ $min }}
+  {{- end }}
+  {{- if not (kindIs "invalid" $max) }}
+  maxUnavailable: {{ $max }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
+{{- end }}

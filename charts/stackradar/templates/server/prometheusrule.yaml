@@ -1,0 +1,66 @@
+{{- if .Values.metrics.prometheusRule.enabled -}}
+---
+# Alerting for the OSV mirror. The failure this design cannot self-detect is
+# a sync that silently stops producing: nothing errors, the mirror quietly
+# ages while every dashboard reads "healthy". Every rule is aimed at that.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "stackradar.componentFullname" (dict "ctx" . "suffix" "osv-mirror") }}
+  namespace: {{ .Values.metrics.prometheusRule.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "stackradar.componentLabels" (dict "ctx" . "component" "server") | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: stackradar-osv-mirror
+      rules:
+        # The watchdog. Lag is derived from columns only a running sync
+        # updates, so a sync that has stopped leaves it frozen — typically
+        # at 0. Poll age is the one signal that keeps moving.
+        - alert: StackRadarOsvMirrorStale
+          expr: max by (namespace) (osv_mirror_last_successful_poll_age_seconds{namespace="{{ .Release.Namespace }}"}) > 10800
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OSV mirror has not synced in over 3 hours ({{ "{{" }} $labels.namespace {{ "}}" }})"
+            description: "The last successful OSV poll was {{ "{{" }} $value | humanizeDuration {{ "}}" }} ago. Check the server logs (monolith) or `kubectl -n {{ .Release.Namespace }} get cronjob,job -l app.kubernetes.io/component=osv-sync` (split)."
+        # More urgent than stale: matching is refused while no complete
+        # generation exists, because an empty mirror would report every
+        # component as clean — a false all-clear.
+        - alert: StackRadarOsvMirrorNotInitialized
+          expr: min by (namespace) (osv_mirror_initialized{namespace="{{ .Release.Namespace }}"}) == 0
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "OSV mirror has no complete generation ({{ "{{" }} $labels.namespace {{ "}}" }})"
+            description: "Vulnerability matching is refused and scan jobs defer until the bootstrap completes. A fresh install's bootstrap takes minutes to an hour depending on the ecosystem list and the connection; if this fires on an install that has been up for longer, read the server logs for the bootstrap error."
+        - alert: StackRadarOsvMirrorSyncFailing
+          expr: max by (namespace) (osv_mirror_consecutive_failures{namespace="{{ .Release.Namespace }}"}) >= 3
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OSV sync has failed {{ "{{" }} $value {{ "}}" }} times in a row ({{ "{{" }} $labels.namespace {{ "}}" }})"
+            description: "Consecutive failures are climbing, so the runs are erroring rather than being skipped for lock contention. The admin area's OSV tab shows the run history and last error."
+        - alert: StackRadarOsvMirrorLagHigh
+          expr: max by (namespace) (osv_mirror_lag_seconds{namespace="{{ .Release.Namespace }}"}) > 21600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OSV mirror is {{ "{{" }} $value | humanizeDuration {{ "}}" }} behind upstream ({{ "{{" }} $labels.namespace {{ "}}" }})"
+            description: "The sync is running but the applied watermark is not catching up. A candidate that fails on every run holds the watermark behind it by design; check the OSV tab for a repeating failure."
+        - alert: StackRadarOsvMirrorMetricsUnavailable
+          expr: max by (namespace) (osv_mirror_scrape_error{namespace="{{ .Release.Namespace }}"}) == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cannot read OSV sync state for metrics ({{ "{{" }} $labels.namespace {{ "}}" }})"
+            description: "The server is serving /metrics but its query against osv_sync_state is failing; the mirror gauges are absent, so every other rule in this group is blind."
+{{- end }}

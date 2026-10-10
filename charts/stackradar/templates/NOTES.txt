@@ -1,0 +1,103 @@
+{{- $fixtures := include "stackradar.fixturesInEffect" . -}}
+{{- $clientSvc := include "stackradar.client.fullname" . -}}
+{{- $serverSvc := include "stackradar.server.fullname" . -}}
+StackRadar {{ .Chart.AppVersion }} has been {{ if .Release.IsUpgrade }}upgraded{{ else }}installed{{ end }}.
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ .Release.Namespace }}
+Topology:   {{ include "stackradar.topology" . }}
+Database:   {{ if .Values.postgresql.enabled }}bundled ({{ include "stackradar.postgresql.fullname" . }}){{ else }}external{{ end }}
+Scanner:    {{ if .Values.scanner.enabled }}{{ include "stackradar.scanner.fullname" . }}-watcher, scanning this cluster{{ else }}disabled — nothing is scanned until one is installed{{ end }}
+
+Open the UI:
+{{- if .Values.ingress.enabled }}
+
+  {{ include "stackradar.externalUrl" . }}  (Ingress host {{ .Values.ingress.hostname }})
+{{- else if .Values.httpRoute.enabled }}
+
+  {{ include "stackradar.externalUrl" . }}  (HTTPRoute hostnames: {{ join ", " .Values.httpRoute.hostnames }})
+{{- else }}
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ $clientSvc }} 3000:{{ .Values.client.service.port }}
+
+  then http://localhost:3000. To upload an SBOM by hand or to call the API,
+  also forward the server:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ $serverSvc }} 8080:{{ .Values.server.service.port }}
+{{- end }}
+{{- if .Values.auth.local.enabled }}
+
+Log in as `{{ .Values.auth.local.adminEmail }}` with the password you set in
+`auth.local.adminPassword` (default `admin`). You will be asked to change it.
+Do this IMMEDIATELY, ideally before exposing the install beyond localhost.
+{{- else }}
+
+Local sign-in is off (auth.local.enabled=false); sign in through the
+configured identity provider.
+{{- end }}
+{{- if .Values.scanner.enabled }}
+
+The scanner starts beside the server and reports as cluster `local`. The
+server creates that cluster and its key at start-up from the bootstrap
+credential, so the scanner's first heartbeats may be rejected for a few
+seconds and then accepted — that is expected. This cluster's own images show
+up with findings once the first pod sweep and the OSV bootstrap are done
+(minutes for the default ecosystem list, depending on your connection; the
+UI says so until then).
+{{- end }}
+
+Migrations: every server and client pod applies its own chain at start-up
+under a Postgres advisory lock{{ if .Values.initializer.enabled }} — except here: initializer.enabled moved
+that to the pre-install/pre-upgrade hook Jobs, and the pods skip it{{ end }}.
+If a pod stays NotReady for an unusually long time, read its logs:
+
+  kubectl --namespace {{ .Release.Namespace }} logs deploy/{{ $serverSvc }}
+  kubectl --namespace {{ .Release.Namespace }} logs deploy/{{ $clientSvc }}
+
+`/api/health/ready` on either names the problem rather than the value.
+{{- if $fixtures }}
+
+WARNING: public fixture secrets are in effect for:
+
+{{- range $f := splitList "," $fixtures }}
+  - {{ $f }}
+{{- end }}
+
+Every install that leaves these at their defaults shares them. With the
+fixture scanner key, any pod in this cluster that can reach
+{{ $serverSvc }}:{{ .Values.server.service.port }} can upload SBOMs as the local cluster.
+Set your own values (`openssl rand -hex 32`, `uuidgen | tr A-Z a-z`) or
+reference existing Secrets, then `helm upgrade`. The database password is
+the exception: Postgres set it when it initialised the volume, so change it
+in Postgres (`ALTER ROLE`) and in the values together. Nothing in this chart
+is ever generated for you — a generated secret would change on every
+GitOps render.
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+
+The bundled Postgres is one node, no HA, no automated backups and no managed
+major upgrades. Its volume is retained by `helm uninstall`. Back it up with:
+
+  kubectl --namespace {{ .Release.Namespace }} exec {{ include "stackradar.postgresql.fullname" . }}-0 -- \
+    pg_dump -U {{ .Values.postgresql.auth.username }} -Fc {{ .Values.postgresql.auth.database }} > stackradar.dump
+
+When it stops being enough, "Moving to your own Postgres" in the chart
+README is the way out.
+{{- end }}
+{{- if or (gt (int .Values.client.replicaCount) 1) .Values.client.autoscaling.enabled }}
+
+NOTE: more than one client replica. The local sign-in's per-address rate
+limit is in-process, so put a rate limit on POST /api/auth/local at the
+ingress.
+{{- end }}
+{{- if .Release.IsUpgrade }}
+
+BEFORE YOU UPGRADE: application upgrades can carry schema migrations and
+breaking changes the chart does not shield you from. Read, in this order:
+
+  1. Self-hosting guide  https://github.com/lockdep/stackradar/blob/main/docs/self-hosting/helm.md
+  2. Release notes       https://github.com/lockdep/stackradar/releases/tag/v{{ .Chart.AppVersion }}
+  3. Chart changes       https://github.com/lockdep/helm-charts/blob/main/charts/stackradar/UPGRADING.md
+
+Run `helm upgrade --dry-run` to see this before it applies.
+{{- end }}

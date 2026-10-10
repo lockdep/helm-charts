@@ -1,0 +1,107 @@
+{{- /*
+  The vulnerability feeds as CronJobs — split topology only. In monolith the
+  server runs the same code on the same schedules in-process. One template,
+  five feeds; each entry names the values block that sizes it, the CLI it
+  runs and the scratch space it needs. Memory ceilings for Node are kept
+  below the container limit on purpose so V8 collects hard near its ceiling
+  rather than getting OOM-killed, which loses the run's logs.
+*/ -}}
+{{- if eq (include "stackradar.topology" .) "split" }}
+{{- $feeds := list
+  (dict "name" "osv-sync" "key" "osv" "command" (list "node" "--max-old-space-size=768" "dist/src/osv-sync/cli.js" "--once") "tmp" "2Gi" "osvTmp" true "concurrency" "Forbid")
+  (dict "name" "osv-bootstrap" "key" "osvBootstrap" "command" (list "node" "--max-old-space-size=1536" "dist/src/osv-sync/cli.js" "--bootstrap-if-needed") "tmp" "4Gi" "osvTmp" true "concurrency" "Forbid")
+  (dict "name" "epss-sync" "key" "epss" "command" (list "node" "dist/src/epss-sync/cli.js" "--once") "tmp" "512Mi" "osvTmp" false "concurrency" "Forbid")
+  (dict "name" "kev-sync" "key" "kev" "command" (list "node" "dist/src/kev-sync/cli.js" "--once") "tmp" "256Mi" "osvTmp" false "concurrency" "Forbid")
+}}
+{{- if .Values.vulnerabilityData.artifactHubSync.enabled }}
+{{- $feeds = append $feeds (dict "name" "artifacthub-sync" "key" "artifactHub" "command" (list "node" "--max-old-space-size=768" "dist/src/artifacthub-sync/cli.js" "--once") "tmp" "1Gi" "osvTmp" false "concurrency" "Forbid") }}
+{{- end }}
+{{- range $feed := $feeds }}
+{{- $cfg := index $.Values.sync $feed.key }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "stackradar.componentFullname" (dict "ctx" $ "suffix" $feed.name) }}
+  namespace: {{ $.Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" $ "component" $feed.name) | nindent 4 }}
+spec:
+  schedule: {{ $cfg.schedule | quote }}
+  timeZone: Etc/UTC
+  successfulJobsHistoryLimit: {{ $.Values.sync.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $.Values.sync.failedJobsHistoryLimit }}
+  concurrencyPolicy: {{ $feed.concurrency }}
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: {{ $.Values.sync.ttlSecondsAfterFinished }}
+      backoffLimit: {{ $cfg.backoffLimit }}
+      activeDeadlineSeconds: {{ $cfg.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "stackradar.selectorLabels" (dict "ctx" $ "component" $feed.name) | nindent 12 }}
+            {{- include "stackradar.databaseClientLabel" $ | nindent 12 }}
+          {{- with $.Values.sync.podAnnotations }}
+          annotations: {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          # Never, not OnFailure: each attempt is its own Failed pod with
+          # its logs kept for as long as the Job is.
+          restartPolicy: Never
+          serviceAccountName: {{ include "stackradar.serviceAccountName" $ }}
+          automountServiceAccountToken: false
+          enableServiceLinks: {{ $.Values.enableServiceLinks }}
+          {{- with $.Values.server.podSecurityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $.Values.image.pullSecrets }}
+          imagePullSecrets: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: {{ $feed.name }}
+              image: {{ include "stackradar.server.image" $ }}
+              imagePullPolicy: {{ $.Values.server.image.pullPolicy }}
+              {{- with $.Values.server.securityContext }}
+              securityContext: {{- toYaml . | nindent 16 }}
+              {{- end }}
+              command: {{- toYaml $feed.command | nindent 16 }}
+              env:
+                {{- include "stackradar.serverEnv" (dict "ctx" $ "role" "sync") | nindent 16 }}
+                {{- if $feed.osvTmp }}
+                - name: OSV_MAX_PARALLEL_DOWNLOADS
+                  value: "8"
+                - name: OSV_BATCH_SIZE
+                  value: "100"
+                # The archives land in os.tmpdir(), on the sized volume below.
+                - name: TMPDIR
+                  value: /tmp-osv
+                {{- end }}
+              {{- with $.Values.server.extraEnvFrom }}
+              envFrom: {{- toYaml . | nindent 16 }}
+              {{- end }}
+              resources: {{- toYaml $cfg.resources | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                {{- if $feed.osvTmp }}
+                - name: tmp-osv
+                  mountPath: /tmp-osv
+                {{- end }}
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: {{ ternary "256Mi" $feed.tmp $feed.osvTmp | quote }}
+            {{- if $feed.osvTmp }}
+            - name: tmp-osv
+              emptyDir:
+                sizeLimit: {{ $feed.tmp | quote }}
+            {{- end }}
+          {{- with $.Values.sync.tolerations | default $.Values.tolerations }}
+          tolerations: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $.Values.sync.nodeSelector | default $.Values.nodeSelector }}
+          nodeSelector: {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+{{- end }}

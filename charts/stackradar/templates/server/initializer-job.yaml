@@ -1,0 +1,64 @@
+{{- include "stackradar.validate.initializer" . }}
+{{- if .Values.initializer.enabled }}
+{{- $hookAnnotations := dict "helm.sh/hook" "pre-install,pre-upgrade" "helm.sh/hook-weight" "0" "helm.sh/hook-delete-policy" "before-hook-creation" }}
+{{- $annotations := mergeOverwrite $hookAnnotations (.Values.initializer.annotations | default dict) -}}
+---
+# The server's migration chain, run once per install/upgrade instead of in
+# every starting server pod. The client's chain is the sibling Job in
+# client/initializer-job.yaml (weight 1: both take the same advisory lock, so
+# the order is a courtesy, not a requirement).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "stackradar.componentFullname" (dict "ctx" . "suffix" "initializer-server") }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "initializer") | nindent 4 }}
+  annotations: {{- toYaml $annotations | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.initializer.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "initializer") | nindent 8 }}
+        {{- include "stackradar.databaseClientLabel" . | nindent 8 }}
+      {{- with .Values.initializer.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: {{ .Values.enableServiceLinks }}
+      restartPolicy: Never
+      {{- with .Values.server.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.initializer.initContainers }}
+      initContainers:
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: initializer
+          image: {{ include "stackradar.server.image" . }}
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          {{- with .Values.server.securityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources: {{- toYaml .Values.initializer.resources | nindent 12 }}
+          env:
+            {{- include "stackradar.serverEnv" (dict "ctx" . "role" "initializer") | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+      {{- with .Values.initializer.tolerations | default .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.initializer.nodeSelector | default .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,57 @@
+suite: notes
+release:
+  name: stackradar
+  namespace: sr-test
+templates:
+  - NOTES.txt
+tests:
+  - it: install prints the port-forward commands, the admin login and the fixture warning
+    asserts:
+      - matchRegexRaw:
+          pattern: port-forward svc/stackradar-client 3000:3000
+      - matchRegexRaw:
+          pattern: Log in as `admin@stackradar.local`
+      - matchRegexRaw:
+          pattern: "WARNING: public fixture secrets are in effect for:"
+      - matchRegexRaw:
+          pattern: "- scanner.stackradar.apiKey"
+      - matchRegexRaw:
+          pattern: "- postgresql.auth.password"
+      - matchRegexRaw:
+          pattern: pg_dump -U stackradar -Fc stackradar
+      - notMatchRegexRaw:
+          pattern: BEFORE YOU UPGRADE
+
+  - it: the fixture warning disappears once every secret is the user's own
+    set:
+      secrets.existingSecret.name: mine
+      postgresql.auth.existingSecret.name: pg
+      scanner.stackradar.existingSecret: boot
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING: public fixture secrets"
+
+  - it: an Ingress replaces the port-forward with the URL
+    set:
+      ingress.enabled: true
+      ingress.hostname: sr.example.test
+    asserts:
+      - matchRegexRaw:
+          pattern: http://sr.example.test
+      - notMatchRegexRaw:
+          pattern: port-forward svc/stackradar-client
+
+  - it: upgrade prints the three-document block linking the target app version
+    release:
+      name: stackradar
+      namespace: sr-test
+      upgrade: true
+    chart:
+      appVersion: 9.9.9
+    asserts:
+      - matchRegexRaw:
+          pattern: BEFORE YOU UPGRADE
+      - matchRegexRaw:
+          pattern: https://github\.com/lockdep/stackradar/releases/tag/v9\.9\.9
+      - matchRegexRaw:
+          pattern: UPGRADING\.md

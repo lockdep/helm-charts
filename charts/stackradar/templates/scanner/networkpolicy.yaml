@@ -1,0 +1,28 @@
+{{- if and .Values.scanner.enabled .Values.scanner.networkPolicy.enabled -}}
+---
+# The scanner subchart's own NetworkPolicy allows egress to DNS, the
+# Kubernetes API server and TCP 443 — written for the public API host. In
+# this install it reports to the server Service of the same release, on the
+# server pod's port 3001; NetworkPolicies are additive, so this one adds that
+# single rule without touching the subchart's. Rendered whenever the
+# subchart's policy is, independent of this chart's `networkPolicy.enabled`:
+# without it the bundled scanner could never reach the server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "stackradar.componentFullname" (dict "ctx" . "suffix" "scanner-to-server") }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.commonLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "stackradar.scanner.podSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "server") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 3001
+{{- end }}

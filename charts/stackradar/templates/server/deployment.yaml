@@ -1,0 +1,125 @@
+{{- $topology := include "stackradar.topology" . }}
+{{- $role := ternary "web" "monolith" (eq $topology "split") }}
+{{- $envFrom := .Values.server.extraEnvFrom -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stackradar.server.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "server") | nindent 4 }}
+  {{- with .Values.server.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.server.autoscaling.enabled }}
+  replicas: {{ .Values.server.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.server.revisionHistoryLimit }}
+  strategy: {{- toYaml .Values.server.deployment.strategy | nindent 4 }}
+  selector:
+    matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "server") | nindent 8 }}
+        {{- include "stackradar.databaseClientLabel" . | nindent 8 }}
+        {{- with .Values.server.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.server.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "stackradar.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: {{ .Values.enableServiceLinks }}
+      terminationGracePeriodSeconds: {{ .Values.server.terminationGracePeriodSeconds }}
+      {{- with .Values.server.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.server.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $waitInit := include "stackradar.waitForPostgresInitContainer" . }}
+      {{- if or $waitInit .Values.server.initContainers }}
+      initContainers:
+        {{- $waitInit | nindent 8 }}
+        {{- with .Values.server.initContainers }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ include "stackradar.server.image" . }}
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          {{- with .Values.server.securityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.server.command }}
+          command: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.server.args }}
+          args: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources: {{- toYaml .Values.server.resources | nindent 12 }}
+          env:
+            {{- include "stackradar.serverEnv" (dict "ctx" . "role" $role) | nindent 12 }}
+          {{- with $envFrom }}
+          envFrom: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              port: http
+              path: /api/health/live
+            {{- toYaml .Values.server.probes.liveness | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              port: http
+              path: /api/health/ready
+            {{- toYaml .Values.server.probes.readiness | nindent 12 }}
+          startupProbe:
+            httpGet:
+              scheme: HTTP
+              port: http
+              path: /api/health/ready
+            {{- toYaml .Values.server.probes.startup | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.server.additionalVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with .Values.server.extraContainers }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+      volumes:
+        # readOnlyRootFilesystem needs a writable /tmp: Node's os.tmpdir(),
+        # the OSV archives during the import and, in monolith, syft's scratch.
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.server.tmpSizeLimit | quote }}
+        {{- with .Values.server.additionalVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.server.tolerations | default .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.nodeSelector | default .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}

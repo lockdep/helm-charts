@@ -1,0 +1,705 @@
+---
+# Resource names are `<release>-<component>` — `stackradar-server`,
+# `stackradar-client`, `stackradar-postgresql` for `helm install stackradar` —
+# so the commands in the README and NOTES hold for any release name.
+# `fullnameOverride` replaces the `<release>` part. See templates/_naming.tpl.
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # -- Default container image registry. Overridable per component.
+  registry: ghcr.io
+  # -- Pull secrets for every chart-managed pod (the scanner subchart has its own `imagePullSecrets`).
+  pullSecrets: []
+
+# -- The URL users open the UI at, e.g. `https://stackradar.example.com`. It is
+# what links in the UI point to (`APP_URL`) and what the session cookie is
+# issued for (`AUTH_URL`). Empty: derived from `ingress.hostname` /
+# `httpRoute.hostnames[0]` when either is enabled, otherwise the install is
+# reached by port-forward and the client trusts the Host header instead.
+externalUrl: ""
+
+# -- `LOG_LEVEL` for the server, worker and client.
+logLevel: info
+
+serviceAccount:
+  # -- Whether to create a ServiceAccount for the server, client and worker pods.
+  # None of them talks to the Kubernetes API; the token is never mounted. The
+  # scanner subchart creates its own, which does.
+  create: true
+  # -- Annotations on the created ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount. Defaults to the release fullname when empty.
+  # Provide a custom name and set `create: false` to use a ServiceAccount you manage.
+  name: ""
+
+enableServiceLinks: false
+
+# -- Node selector applied to all chart-managed pods. Replaced entirely by a
+# component-level `nodeSelector` when one is set to a non-empty value.
+nodeSelector: {}
+# -- Tolerations applied to all chart-managed pods. Replaced entirely by a
+# component-level `tolerations` when one is set to a non-empty value.
+tolerations: []
+
+# -- `monolith` (default): one `server` Deployment runs the API, the job
+# worker and the in-process schedule for the OSV / EPSS / KEV syncs; the
+# install is `server` + `client` + the scanner. `split`: the server is
+# HTTP-only, the worker is its own Deployment (`worker.*`) and the syncs are
+# CronJobs (`sync.*`) — the cloud's shape, for installs that want to scale
+# the pieces separately. Setting `worker.*` knobs in `monolith` fails the
+# render rather than being ignored.
+topology: monolith
+
+database:
+  # -- Connection string for an external PostgreSQL, used when
+  # `postgresql.enabled` is false. Both apps read it (the client keeps its
+  # Auth.js tables in the `auth` schema of the same database). Must carry an
+  # explicit `sslmode` — `require` for a managed database, `prefer` for one on
+  # a private network — because the server refuses a production URL that says
+  # nothing about TLS. Stored in a chart-managed Secret; prefer
+  # `existingSecret` for anything beyond evaluation.
+  url: ""
+  existingSecret:
+    # -- Name of an existing Secret holding the connection string. When set,
+    # `database.url` must be empty.
+    name: ""
+    # -- Key in that Secret holding the connection string.
+    urlKey: url
+    # -- Optional key in the same Secret holding the PEM of the CA to verify
+    # the database server against (`DATABASE_CA_CERT`, for `sslmode=verify-ca` /
+    # `verify-full`). Empty: not mounted.
+    caCertKey: ""
+
+# Bundled PostgreSQL. On by default so a bare `helm install` works; a
+# single-replica StatefulSet with a kept volume, reachable only from this
+# release's pods. It is one node, no HA, no automated backups and no managed
+# major upgrades — fine for evaluation and small installs, and the README
+# "Moving to your own Postgres" explains the way out when it stops being.
+postgresql:
+  # -- Deploy the bundled PostgreSQL. Set to false and configure `database.*`
+  # for your own; setting both fails the render.
+  enabled: true
+  image:
+    # -- Override `image.registry` for PostgreSQL. The official image lives on Docker Hub.
+    registry: docker.io
+    repository: library/postgres
+    # -- Tag name. The chart pins the image by `digest` as well; to run a
+    # different image clear the digest too.
+    tag: 18-alpine
+    # -- Image digest, so every install of this chart version runs the same
+    # bytes. The multi-arch index digest of `postgres:18-alpine` on 10 Oct 2026.
+    digest: sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    pullPolicy: IfNotPresent
+  auth:
+    # -- Database and role name; both apps connect as this user.
+    username: stackradar
+    database: stackradar
+    # -- The role's password, stored in a chart-managed Secret. PUBLIC
+    # FIXTURE: the same on every install that leaves it. Set your own
+    # (`openssl rand -hex 24`; keep it URL-safe, it is interpolated into
+    # `DATABASE_URL`) or reference an `existingSecret`. Postgres sets the
+    # password when it initialises the volume, so change it before the
+    # first install or change it in Postgres afterwards.
+    password: stackradar-fixture-db-password
+    existingSecret:
+      # -- Name of an existing Secret holding the password. When set, `password` must be left at its default.
+      name: ""
+      # -- Key in that Secret holding the password.
+      passwordKey: password
+  persistence:
+    # -- Size of the data volume, created from `volumeClaimTemplates`. The
+    # StatefulSet retains it on deletion and it carries
+    # `helm.sh/resource-policy: keep`: `helm uninstall` never deletes data.
+    size: 10Gi
+    # -- StorageClass for the data volume. Empty: the cluster default.
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    # -- Extra annotations on the volume claim template.
+    annotations: {}
+  # -- Size limit of the `/dev/shm` memory-backed volume. Kubernetes' default
+  # 64 MiB is too small for Postgres' parallel workers on a large mirror.
+  shmSizeLimit: 256Mi
+  # -- Memory request and limit (no CPU limit, by house rule: CPU is
+  # compressible and a limit only throttles). The default-list OSV mirror is
+  # low single-digit GB on disk; the import is the memory peak.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  # -- Pod security context. uid/gid 70 is `postgres` in the Alpine image;
+  # `fsGroup` makes the volume writable. On OpenShift set it to `~`.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 70
+    runAsGroup: 70
+    fsGroup: 70
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Extra `postgres` server arguments, e.g. `["-c", "shared_buffers=512MB"]`.
+  args: []
+  probes:
+    readiness:
+      failureThreshold: 6
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    liveness:
+      failureThreshold: 6
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+  podAnnotations: {}
+  podLabels: {}
+  priorityClassName: ""
+  tolerations: []
+  nodeSelector: {}
+  affinity: {}
+
+# The three application secrets. Each is a public fixture by default so a
+# bare install works (NOTES.txt warns for every fixture still in effect);
+# set your own inline, or reference an `existingSecret` and leave the inline
+# values at their defaults. The chart NEVER generates a secret: a generated
+# value would change on every GitOps render.
+secrets:
+  # -- Shared between the client and the server (`X-Internal-Key` on every
+  # BFF → server call). Generate with `openssl rand -hex 32`.
+  internalServiceKey: stackradar-fixture-internal-service-key
+  # -- Encrypts scanner keys at rest so an admin can reveal them. 64 hex
+  # characters: `openssl rand -hex 32`. Changing it later makes the stored
+  # keys unreadable, so set it once.
+  apiKeyEncryptionKey: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  # -- Signs the session cookie. Generate with `openssl rand -base64 32`.
+  authSecret: stackradar-fixture-auth-secret-change-me
+  existingSecret:
+    # -- Name of an existing Secret holding all three (and the bootstrap
+    # admin password when `auth.local.enabled`). When set, the inline values
+    # above must be left at their defaults.
+    name: ""
+    internalServiceKeyKey: internal-service-key
+    apiKeyEncryptionKeyKey: api-key-encryption-key
+    authSecretKey: auth-secret
+    adminPasswordKey: admin-password
+
+auth:
+  local:
+    # -- Local username/password sign-in. The first admin is created at
+    # start-up with the email and password below and must change the
+    # password on first login. `false` hides the form once an identity
+    # provider below works.
+    enabled: true
+    adminEmail: admin@stackradar.local
+    # -- Used exactly once: the first login forces a change. Read from
+    # `secrets.existingSecret` (`adminPasswordKey`) when that is set.
+    adminPassword: admin
+  # Generic OpenID Connect (Keycloak, Authentik, Entra ID, Okta, Zitadel).
+  # Enabled when `issuer` is set together with inline credentials or an
+  # `existingSecret`. Callback URL: `<externalUrl>/api/auth/callback/oidc`.
+  oidc:
+    issuer: ""
+    clientId: ""
+    clientSecret: ""
+    existingSecret:
+      # -- Name of an existing Secret holding the client id and secret.
+      name: ""
+      clientIdKey: client-id
+      clientSecretKey: client-secret
+    # -- Button label ("Continue with Keycloak"). Empty: "Single sign-on".
+    name: ""
+    # -- Scopes to request. Empty: the provider default (`openid email profile`).
+    scope: ""
+    # -- Members of this group (in `groupsClaim`) are platform admins, re-evaluated on every sign-in. Empty: admins are managed in StackRadar only.
+    adminGroup: ""
+    # -- The claim that carries groups. Empty: `groups`.
+    groupsClaim: ""
+  github:
+    clientId: ""
+    clientSecret: ""
+    existingSecret:
+      name: ""
+      clientIdKey: client-id
+      clientSecretKey: client-secret
+  google:
+    clientId: ""
+    clientSecret: ""
+    existingSecret:
+      name: ""
+      clientIdKey: client-id
+      clientSecretKey: client-secret
+
+vulnerabilityData:
+  # -- Comma-separated OSV directory names the mirror carries (`Alpine,Debian,Red Hat,npm`;
+  # case-sensitive, spaces included). Empty: the community default — the base
+  # images and package managers a cluster is made of. `*` is the whole corpus
+  # (~2.5 GB of downloads, ~12 GB on disk). `Alpine` alone is a two-minute,
+  # 40 MB mirror for a first look. Widening the list later rebuilds the mirror
+  # at the next bootstrap check.
+  osvEcosystems: ""
+  artifactHubSync:
+    # -- Mirror Artifact Hub's package index nightly, for chart attribution
+    # and upgrade recommendations. Off by default: ~25 MB a night and a 1 GB
+    # memory peak that a single-cluster dashboard does not need.
+    enabled: false
+
+# The vulnerability feeds. In `monolith` topology the schedules are the
+# server's in-process crons (UTC); in `split` each is a CronJob and the rest
+# of its block sizes the Job.
+sync:
+  osv:
+    # -- Incremental OSV sync.
+    schedule: "0 * * * *"
+    activeDeadlineSeconds: 5400
+    backoffLimit: 2
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+  osvBootstrap:
+    # -- Rebuilds the mirror when there is no complete generation (a fresh
+    # install, a restored database); a no-op otherwise.
+    schedule: "0 */12 * * *"
+    activeDeadlineSeconds: 28800
+    backoffLimit: 0
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        memory: 2Gi
+  epss:
+    schedule: "15 6 * * *"
+    activeDeadlineSeconds: 1800
+    backoffLimit: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+  kev:
+    schedule: "15 7 * * *"
+    activeDeadlineSeconds: 1800
+    backoffLimit: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+  artifactHub:
+    # -- Only rendered / scheduled when `vulnerabilityData.artifactHubSync.enabled`.
+    schedule: "15 2 * * *"
+    activeDeadlineSeconds: 1800
+    backoffLimit: 2
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+  # -- Applied to every CronJob in `split` topology.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  ttlSecondsAfterFinished: 604800
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+
+# Migrations. By default every server and client pod applies its own chain at
+# start-up under a shared Postgres advisory lock: one migrates, the rest wait
+# and find nothing to do. The initializer moves that to a single
+# pre-install/pre-upgrade hook Job that runs the server image with
+# `MIGRATE_EXIT_AFTER=true`; the app pods then skip it. Requires an external
+# database referenced by `database.existingSecret.name` — a Helm hook runs
+# before the chart's own Secrets (and the bundled Postgres) exist. See the
+# README "Initializer".
+initializer:
+  enabled: false
+  backoffLimit: 3
+  # -- Annotations on the Job. Merged with (and may override) the chart's `helm.sh/hook*` annotations.
+  annotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  initContainers: []
+
+server:
+  image:
+    # -- Override `image.registry` for the server.
+    registry: ""
+    repository: lockdep/stackradar-server
+    # -- Tag name or `sha256:<digest>`. Defaults to the chart's `appVersion`.
+    tag: ""
+    pullPolicy: IfNotPresent
+  command: []
+  args: []
+  # -- Number of replicas. More than one is safe: the job queue claims with
+  # `SKIP LOCKED` and every sync takes an advisory lock.
+  replicaCount: 1
+  # -- `NODE_OPTIONS`. The heap ceiling has to cover the OSV import in
+  # `monolith` topology (the default list peaks well under this); the cloud's
+  # HTTP-only server runs with 768.
+  nodeOptions: "--max-old-space-size=1536"
+  # -- Size limit of the `/tmp` scratch volume: OSV archives land there
+  # during the import, and in `monolith` topology syft unpacks images there.
+  tmpSizeLimit: 8Gi
+  # -- Annotations on the Deployment.
+  annotations: {}
+  podAnnotations: {}
+  podLabels: {}
+  # -- uid/gid 1001 is the image's user. On OpenShift set it to `~`.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    seccompProfile:
+      type: RuntimeDefault
+  service:
+    type: ClusterIP
+    nodePort: ~
+    # -- The port the Service listens on; the container listens on 3001. The
+    # scanner subchart's default `stackradar.apiUrl` names this port.
+    port: 8080
+    annotations: {}
+  # -- Memory sized for `monolith`: the OSV import and syft runs happen in
+  # this pod. The steady state is a few hundred MB. No CPU limit (house rule).
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+  probes:
+    # -- Startup budget covers migrations on first install and on upgrades:
+    # 60 × 10 s = 10 min. For a long backfill migration raise it and pass
+    # `helm upgrade --timeout`, since Helm's 5-minute default fires first.
+    startup:
+      failureThreshold: 60
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    liveness:
+      failureThreshold: 3
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    readiness:
+      failureThreshold: 3
+      initialDelaySeconds: 0
+      periodSeconds: 5
+      successThreshold: 1
+      timeoutSeconds: 5
+  deployment:
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
+  # -- Lets in-flight uploads finish and, in `monolith`, a running scan job drain.
+  terminationGracePeriodSeconds: 120
+  revisionHistoryLimit: 5
+  priorityClassName: ""
+  # -- Extra env for the server (and the worker and sync Jobs in `split`).
+  # Don't set chart-managed variables (DATABASE_URL, STACKRADAR_EDITION,
+  # TOPOLOGY, MIGRATE_*, APP_URL, INTERNAL_SERVICE_KEY, API_KEY_ENCRYPTION_KEY,
+  # BOOTSTRAP_*, OSV_ECOSYSTEMS, *_CRON, ARTIFACT_HUB_SYNC_ENABLED).
+  extraEnv: []
+  extraEnvFrom: []
+  extraContainers: []
+  initContainers: []
+  additionalVolumes: []
+  additionalVolumeMounts: []
+  tolerations: []
+  nodeSelector: {}
+  affinity: {}
+  topologySpreadConstraints: []
+  autoscaling:
+    enabled: false
+    annotations: {}
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: ~
+    behavior: {}
+  pdb:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: ~
+
+client:
+  image:
+    registry: ""
+    repository: lockdep/stackradar-client
+    # -- Tag name or `sha256:<digest>`. Defaults to the chart's `appVersion`.
+    tag: ""
+    pullPolicy: IfNotPresent
+  command: []
+  args: []
+  # -- Number of replicas. NOTE: the local sign-in's per-address rate limit is
+  # in-process; with more than one replica put a rate limit on `/api/auth/local`
+  # at the ingress.
+  replicaCount: 1
+  tmpSizeLimit: 256Mi
+  # -- Next.js writes its image-optimiser / ISR cache here at runtime.
+  nextCacheSizeLimit: 512Mi
+  annotations: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    seccompProfile:
+      type: RuntimeDefault
+  service:
+    type: ClusterIP
+    nodePort: ~
+    port: 3000
+    annotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  probes:
+    startup:
+      failureThreshold: 60
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    liveness:
+      failureThreshold: 3
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    readiness:
+      failureThreshold: 3
+      initialDelaySeconds: 0
+      periodSeconds: 5
+      successThreshold: 1
+      timeoutSeconds: 5
+  deployment:
+    strategy:
+      type: RollingUpdate
+  terminationGracePeriodSeconds: 30
+  revisionHistoryLimit: 5
+  priorityClassName: ""
+  # -- Don't set chart-managed variables (DATABASE_URL, STACKRADAR_EDITION,
+  # MIGRATE_*, EXPRESS_API_URL, INTERNAL_SERVICE_KEY, AUTH_*).
+  extraEnv: []
+  extraEnvFrom: []
+  extraContainers: []
+  initContainers: []
+  additionalVolumes: []
+  additionalVolumeMounts: []
+  tolerations: []
+  nodeSelector: {}
+  affinity: {}
+  topologySpreadConstraints: []
+  autoscaling:
+    enabled: false
+    annotations: {}
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: ~
+    behavior: {}
+  pdb:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: ~
+
+# -- The job worker. Only rendered when `topology: split`; in `monolith` the
+# server runs it and setting anything here fails the render.
+worker:
+  replicaCount: 1
+  # -- syft runs inside this pod; `GOMEMLIMIT` reaches it through the
+  # environment and keeps its heap under the container limit.
+  gomemlimit: 1GiB
+  tmpSizeLimit: 8Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 768Mi
+    limits:
+      memory: 1536Mi
+  # -- Long: a nightly platform scan in progress should finish, not be killed mid-image.
+  terminationGracePeriodSeconds: 900
+  revisionHistoryLimit: 5
+  priorityClassName: ""
+  annotations: {}
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraEnvFrom: []
+  tolerations: []
+  nodeSelector: {}
+  affinity: {}
+  topologySpreadConstraints: []
+  autoscaling:
+    enabled: false
+    annotations: {}
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: ~
+    behavior: {}
+  pdb:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: ~
+
+metrics:
+  serviceMonitor:
+    # -- Create a Prometheus Operator ServiceMonitor scraping the server's `/metrics`.
+    enabled: false
+    # -- Namespace for the ServiceMonitor. Empty: the release namespace.
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+  prometheusRule:
+    # -- Create the OSV-mirror alert rules (mirror stale, not initialised, sync failing, lag high, metrics unavailable).
+    enabled: false
+    namespace: ""
+    labels: {}
+
+# NetworkPolicies for the release. Off by default because a CNI that does
+# not enforce them makes them inert, and one that does will cut off an
+# ingress controller the chart cannot name. The bundled Postgres' policy and
+# the scanner's egress allowance are rendered regardless (see those blocks).
+networkPolicy:
+  # -- Default-deny ingress to the server, client and worker pods, then
+  # allow: client → server, scanner → server, `ingressFrom` → client (and
+  # → server when `ingress.exposeApi`), `metricsFrom` → server `/metrics`.
+  # Egress: DNS, the database, TCP 443 anywhere (feeds, registries) plus `extraEgress`.
+  enabled: false
+  # -- Peers (NetworkPolicy `from` entries) allowed to reach the UI, i.e. your
+  # ingress controller: `- namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}`.
+  # Empty: any source may reach the client port.
+  ingressFrom: []
+  # -- Peers allowed to scrape the server's `/metrics`. Empty: none.
+  metricsFrom: []
+  # -- Extra egress rules for every chart-managed pod, in `spec.egress` shape
+  # (an external database on a non-5432 port, a proxy, a registry on 80).
+  extraEgress: []
+
+ingress:
+  # -- Routes `/` to the client. The server's public API (`/v1`, what a scanner
+  # talks to) is only exposed when `exposeApi` is set; the bundled scanner
+  # reaches the server in-cluster and needs no Ingress.
+  enabled: false
+  # -- Also route `/v1` to the server, for uploading SBOMs from outside the cluster.
+  exposeApi: false
+  annotations: {}
+  labels: {}
+  hostname: stackradar.example.com
+  ingressClassName: ""
+  tls: []
+  #  - secretName: stackradar-tls
+  #    hosts:
+  #      - stackradar.example.com
+
+httpRoute:
+  # -- Gateway API alternative to the Ingress; the two are mutually exclusive. Requires `parentRefs`.
+  enabled: false
+  exposeApi: false
+  annotations: {}
+  labels: {}
+  hostnames:
+    - stackradar.example.com
+  parentRefs: []
+  #  - name: my-gateway
+  #    namespace: default
+  #    sectionName: https
+
+# The scanner, as a subchart (lockdep/stackradar-scanner). Everything under
+# `scanner` is that chart's values; only the keys the parent depends on are
+# spelled out here. It is installed by default, pointed at this release's
+# server, and authenticates with the bootstrap credential below — the same
+# values the server reads at start-up to create the cluster `local` and its
+# key, so no second command is needed. Set `enabled: false` to run without a
+# scanner (nothing is scanned until one is installed by hand).
+scanner:
+  enabled: true
+  stackradar:
+    # -- Where the scanner reports to. The default is this release's server
+    # Service, rendered by the subchart through `tpl`. Override for a mesh
+    # that terminates TLS; the chart checks that a default-shaped value still
+    # names the real Service when `fullnameOverride` or `server.service.port` change.
+    apiUrl: "http://{{ .Release.Name }}-server.{{ .Release.Namespace }}.svc:8080"
+    # -- The cluster id the scanner reports as and the server creates at
+    # start-up (`BOOTSTRAP_CLUSTER_ID`). A UUID: `uuidgen | tr A-Z a-z`.
+    clusterId: 8f6b0b7a-0c1e-4f6e-9a4b-2f3d1c0e5a71
+    # -- The key the scanner authenticates with and the server accepts for
+    # that cluster (`BOOTSTRAP_CLUSTER_API_KEY`). PUBLIC FIXTURE: with it, any
+    # pod in the cluster that can reach the server Service can upload SBOMs as
+    # the local cluster. Generate your own with `openssl rand -hex 32`. The
+    # subchart renders both into the Secret `<release>-stackradar-scanner`,
+    # which the server reads too.
+    apiKey: stackradar-fixture-bootstrap-scanner-key
+    # -- Name of an existing Secret with keys `cluster-id` and `api-key`
+    # (overridable below) instead of the inline pair; the server reads the
+    # same Secret. When set, `clusterId` and `apiKey` must be left at their defaults.
+    existingSecret: ""
+    existingSecretKeyApiKey: ""
+    existingSecretKeyClusterId: ""
+  networkPolicy:
+    # -- The subchart's own policy (ingress: kubelet probes only; egress: DNS,
+    # the API server, TCP 443). When on, this chart adds the one rule it
+    # lacks — egress to the server pods — so the scanner can report in-cluster.
+    enabled: true
+
+# -- Extra manifests, rendered through `tpl`.
+extraObjects: []
+  # - apiVersion: external-secrets.io/v1
+  #   kind: ExternalSecret
+  #   metadata:
+  #     name: stackradar-secrets

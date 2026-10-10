@@ -1,0 +1,123 @@
+suite: auth
+release:
+  name: stackradar
+  namespace: sr-test
+tests:
+  - it: local sign-in seeds the admin from the application Secret
+    template: client/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_BOOTSTRAP_ADMIN_EMAIL
+            value: "admin@stackradar.local"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_BOOTSTRAP_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: stackradar-secrets
+                key: admin-password
+
+  - it: inline OIDC credentials render the auth Secret and the provider variables
+    set:
+      auth.oidc.issuer: https://idp.example/realms/sr
+      auth.oidc.clientId: sr
+      auth.oidc.clientSecret: s3cret
+      auth.oidc.name: Keycloak
+      auth.oidc.adminGroup: platform-admins
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: secrets/auth.yaml
+      - isNotNullOrEmpty:
+          path: data["oidc-client-id"]
+        template: secrets/auth.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_OIDC_ISSUER
+            value: "https://idp.example/realms/sr"
+        template: client/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_OIDC_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: stackradar-auth
+                key: oidc-client-secret
+        template: client/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_OIDC_NAME
+            value: "Keycloak"
+        template: client/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_OIDC_ADMIN_GROUP
+            value: "platform-admins"
+        template: client/deployment.yaml
+
+  - it: an existing provider Secret suppresses the chart-managed one
+    set:
+      auth.github.existingSecret.name: gh-oauth
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: secrets/auth.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_GITHUB_ID
+            valueFrom:
+              secretKeyRef:
+                name: gh-oauth
+                key: client-id
+        template: client/deployment.yaml
+
+  - it: a half-configured provider fails fast
+    set:
+      auth.google.clientId: only-the-id
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "auth.google is half-configured"
+
+  - it: OIDC credentials without an issuer fail fast
+    set:
+      auth.oidc.clientId: sr
+      auth.oidc.clientSecret: s3cret
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "auth.oidc has credentials but no auth.oidc.issuer"
+
+  - it: local off with OIDC on hides the form and keeps the install signable-in
+    set:
+      auth.local.enabled: false
+      auth.oidc.issuer: https://idp.example
+      auth.oidc.existingSecret.name: oidc
+    template: client/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_LOCAL_ENABLED
+            value: "false"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_BOOTSTRAP_ADMIN_EMAIL
+          any: true
+
+  - it: no sign-in method at all fails fast
+    set:
+      auth.local.enabled: false
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "no sign-in method is configured"

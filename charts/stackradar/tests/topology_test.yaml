@@ -1,0 +1,137 @@
+suite: topology
+release:
+  name: stackradar
+  namespace: sr-test
+tests:
+  - it: monolith runs the worker and the sync schedule in the server pod
+    template: server/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TOPOLOGY
+            value: monolith
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OSV_SYNC_CRON
+            value: "0 * * * *"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ARTIFACT_HUB_SYNC_ENABLED
+            value: "false"
+
+  - it: split renders the worker Deployment and four CronJobs, and the server is HTTP-only
+    set:
+      topology: split
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: worker/deployment.yaml
+      - hasDocuments:
+          count: 4
+        template: sync/cronjobs.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TOPOLOGY
+            value: split
+        template: server/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OSV_SYNC_CRON
+          any: true
+        template: server/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: ["node", "dist/src/worker.js"]
+        template: worker/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOMEMLIMIT
+            value: 1GiB
+        template: worker/deployment.yaml
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 900
+        template: worker/deployment.yaml
+
+  - it: split with Artifact Hub mirroring adds the fifth CronJob
+    set:
+      topology: split
+      vulnerabilityData.artifactHubSync.enabled: true
+    template: sync/cronjobs.yaml
+    asserts:
+      - hasDocuments:
+          count: 5
+      - equal:
+          path: metadata.name
+          value: stackradar-artifacthub-sync
+        documentIndex: 4
+
+  - it: sync schedules apply in monolith as the in-process crons
+    set:
+      sync.epss.schedule: "30 5 * * *"
+    template: server/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EPSS_SYNC_CRON
+            value: "30 5 * * *"
+
+  - it: sync schedules apply in split as CronJob schedules, in UTC
+    set:
+      sync.epss.schedule: "30 5 * * *"
+      topology: split
+    template: sync/cronjobs.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: stackradar-epss-sync
+      - equal:
+          path: spec.schedule
+          value: "30 5 * * *"
+      - equal:
+          path: spec.timeZone
+          value: Etc/UTC
+
+  - it: the OSV jobs keep their archives on a sized volume
+    set:
+      topology: split
+    template: sync/cronjobs.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: stackradar-osv-bootstrap
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: TMPDIR
+            value: /tmp-osv
+      - equal:
+          path: spec.jobTemplate.spec.activeDeadlineSeconds
+          value: 28800
+
+  - it: monolith fails when worker.replicaCount is bumped
+    set:
+      worker.replicaCount: 3
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "worker\\.\\{.*replicaCount.*\\}.*topology=monolith"
+
+  - it: monolith fails when worker.extraEnv is set
+    set:
+      worker.extraEnv:
+        - name: FOO
+          value: bar
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "worker\\.\\{.*extraEnv.*\\}"

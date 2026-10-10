@@ -1,0 +1,265 @@
+{{ template "chart.header" . }}
+{{ template "chart.deprecationWarning" . }}
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+{{ template "chart.homepageLine" . }}
+
+{{ template "chart.maintainersSection" . }}
+
+{{ template "chart.sourcesSection" . }}
+
+{{ template "chart.requirementsSection" . }}
+
+> [!IMPORTANT]
+> **Read the upgrade notes before you upgrade `appVersion`.**
+> StackRadar releases can carry schema migrations and breaking changes
+> that the chart does not shield you from.
+>
+> 1. The [self-hosting guide](https://github.com/lockdep/stackradar/blob/main/docs/self-hosting/helm.md)
+>    covers the procedure.
+> 2. The [release notes](https://github.com/lockdep/stackradar/releases)
+>    of every version you skip past, not just the target one.
+> 3. [UPGRADING.md](https://github.com/lockdep/helm-charts/blob/main/charts/stackradar/UPGRADING.md)
+>    covers the chart-level changes.
+
+## Quickstart
+
+One command on any Kubernetes 1.25+ cluster. No values file, no Postgres to
+bring, no second command for the scanner:
+
+```sh
+helm install stackradar oci://ghcr.io/lockdep/helm-charts/stackradar \
+  --namespace stackradar --create-namespace
+
+kubectl -n stackradar port-forward svc/stackradar-client 3000:3000
+```
+
+Open http://localhost:3000 and log in as `admin@stackradar.local` /
+`admin`. You will be asked to change the password; do it before exposing
+the install beyond localhost. The scanner installed alongside is already
+sweeping the cluster; its images appear with findings once the OSV mirror
+has bootstrapped (minutes, depending on your connection — the UI says so
+until then).
+
+On a laptop cluster (kind, minikube, Docker Desktop) add the trimmed
+sizing and the two-minute Alpine-only mirror:
+
+```sh
+helm install stackradar oci://ghcr.io/lockdep/helm-charts/stackradar \
+  --namespace stackradar --create-namespace \
+  -f https://raw.githubusercontent.com/lockdep/helm-charts/main/charts/stackradar/values-quickstart.yaml
+```
+
+> [!WARNING]
+> **Every secret the bare install uses is a public fixture** — the
+> database password, the service key, the encryption key, the session
+> secret and the scanner's bootstrap key are the same on every install
+> that leaves them at their defaults, and `helm install` prints a WARNING
+> naming each one still in effect. With the fixture scanner key, any pod
+> in the cluster that can reach the server Service can upload SBOMs as
+> the local cluster. Before relying on the install, set your own values
+> or reference existing Secrets (see [Secrets](#secrets)). The chart
+> never generates a secret for you: a generated value would change on
+> every GitOps render and rotate the scanner key each sync.
+
+## What gets installed
+
+| Component | Default | Notes |
+|---|---|---|
+| `server` Deployment | 1 replica, `monolith` topology | The API, the job worker and the OSV / EPSS / KEV sync schedule in one process. |
+| `client` Deployment | 1 replica | The web UI (Next.js), which also keeps its Auth.js tables in the `auth` schema of the same database. |
+| `postgresql` StatefulSet | bundled, 10Gi retained volume | See [Bundled Postgres](#bundled-postgres). |
+| `stackradar-scanner` | subchart, on | Scans the cluster it lands in and reports to the server Service in-cluster. |
+| `worker` Deployment, sync CronJobs | only with `topology: split` | The cloud's shape, for installs that scale the pieces separately. |
+| Ingress or HTTPRoute, NetworkPolicies, ServiceMonitor, PrometheusRule, PDBs, HPAs | off | Enable per block. |
+
+Names are `<release>-<component>`: `stackradar-server`, `stackradar-client`,
+`stackradar-postgresql`, and the scanner's `stackradar-scanner-watcher` for
+`helm install stackradar`.
+
+## Secrets
+
+Three application secrets, the database password and the scanner's
+bootstrap credential. Each follows the same rule:
+
+- **Inline value** (`secrets.internalServiceKey`, `postgresql.auth.password`,
+  `scanner.stackradar.apiKey`, …) ⇒ the chart renders the Secret. The
+  defaults are public fixtures; replace them with `openssl rand -hex 32`
+  (`uuidgen | tr A-Z a-z` for the cluster id).
+- **`existingSecret`** (`secrets.existingSecret.name`,
+  `postgresql.auth.existingSecret.name`, `database.existingSecret.name`,
+  `scanner.stackradar.existingSecret`, `auth.<provider>.existingSecret.name`)
+  ⇒ the chart renders nothing and reads yours; the inline values must be
+  left at their defaults, or the render fails rather than guess which is in
+  effect. Compatible with external-secrets, sealed-secrets and SOPS.
+- **Neither** (an inline value blanked) ⇒ the render fails with the command
+  that generates one.
+
+A production install provisions four Secrets beforehand and references
+them:
+
+```yaml
+secrets:
+  existingSecret:
+    name: stackradar-secrets        # internal-service-key, api-key-encryption-key, auth-secret, admin-password
+postgresql:
+  enabled: false
+database:
+  existingSecret:
+    name: stackradar-db             # url: postgresql://…?sslmode=require
+scanner:
+  stackradar:
+    existingSecret: stackradar-bootstrap   # cluster-id, api-key
+auth:
+  oidc:
+    issuer: https://idp.example.com/realms/stackradar
+    existingSecret:
+      name: stackradar-oidc         # client-id, client-secret
+```
+
+The scanner's bootstrap credential is read by both sides: the scanner
+authenticates with it and the server creates the cluster `local` and that
+key at start-up from the same Secret. That is what makes the install one
+command. The proper fix — the scanner authenticating with a projected
+ServiceAccount token and no shared secret at all — is the first
+post-launch item.
+
+## Bundled Postgres
+
+`postgresql.enabled: true` (the default) renders a single-replica
+StatefulSet on `postgres:18-alpine`, pinned by digest, with a retained data
+volume and a NetworkPolicy that admits only this release's pods — rendered
+whatever `networkPolicy.enabled` says, because a database whose password
+may still be the public fixture must not be reachable from every pod in the
+cluster. `helm uninstall` never deletes the volume.
+
+What it is not: highly available, backed up, or upgraded across Postgres
+majors for you. There is no backup CronJob in this chart version; back it
+up yourself:
+
+```sh
+kubectl -n stackradar exec stackradar-postgresql-0 -- \
+  pg_dump -U stackradar -Fc stackradar > stackradar.dump
+```
+
+### Moving to your own Postgres
+
+1. Scale the apps down so nothing writes: `kubectl -n stackradar scale deploy stackradar-server stackradar-client --replicas=0`.
+2. Dump the bundle (above) and restore it into the new database:
+   `pg_restore -d "postgresql://…/stackradar?sslmode=require" --no-owner stackradar.dump`.
+   The restore needs the `auth` and `drizzle` schemas and both apps' migration
+   journals, which `-Fc` carries.
+3. Put the new connection string in a Secret (`url` key) and flip the values:
+   `postgresql.enabled: false`, `database.existingSecret.name: <secret>`.
+4. `helm upgrade`. The pods come up against the new database; the chain is
+   already applied, so the start-up migration is a no-op.
+5. Once satisfied, delete the retained claim `data-stackradar-postgresql-0`.
+
+## Topology
+
+`topology: monolith` (default) is `server` + `client` + the scanner. The
+server process runs the job worker and an in-process cron for the
+vulnerability feeds on the same schedules as the cloud's CronJobs, in UTC
+(`sync.*.schedule`). Replicas are safe: the queue claims with
+`SKIP LOCKED` and every sync takes a Postgres advisory lock.
+
+`topology: split` renders the `worker` Deployment and one CronJob per feed
+(`osv-sync`, `osv-bootstrap`, `epss-sync`, `kev-sync`, and
+`artifacthub-sync` when `vulnerabilityData.artifactHubSync.enabled`), and
+the server is HTTP-only. Setting `worker.*` knobs under `monolith` fails
+the render rather than being ignored.
+
+## Vulnerability data
+
+The server mirrors OSV, EPSS and KEV itself; nothing phones home.
+`vulnerabilityData.osvEcosystems` scopes the mirror: empty is the community
+default list (the base images and package managers a cluster is made of),
+`Alpine` is a 40 MB two-minute mirror for a first look, `*` is the whole
+corpus (~2.5 GB of downloads, ~12 GB on disk). Widening the list rebuilds
+the mirror at the next bootstrap check. The server's memory default
+(`server.resources`) is sized for the import.
+
+## Migrations and the initializer
+
+By default every server and client pod applies its own migration chain at
+start-up, serialised across replicas by a Postgres advisory lock: one
+migrates, the rest wait and find nothing to do. This works for Helm, Flux
+and Argo CD with no extra configuration.
+
+`initializer.enabled: true` moves that to two `pre-install`/`pre-upgrade`
+hook Jobs (the server image with `MIGRATE_EXIT_AFTER=true`, then the
+client's), and the app pods skip it. Do note:
+
+- **Everything the Jobs read must exist before the release does.** A Helm
+  hook runs before the chart's own Secrets and before the bundled
+  StatefulSet, so the initializer requires an external database
+  (`postgresql.enabled: false`, `database.existingSecret.name`) and the
+  application secrets from `secrets.existingSecret.name`. The render fails
+  otherwise.
+- **The Jobs run on every sync.** Argo CD runs `pre-install` hooks as a
+  `PreSync` step and re-runs them each sync, which is safe because the
+  chain no-ops when the database is current. If your team disables Helm
+  hooks in Argo CD, leave the initializer off.
+
+## Sign-in
+
+Local username/password is on by default (`auth.local.*`); the first admin
+is created at start-up and must change the password on first login. Add
+`auth.oidc.*` for any OpenID Connect provider (callback
+`<externalUrl>/api/auth/callback/oidc`), or `auth.github.*` /
+`auth.google.*`. `auth.local.enabled: false` hides the form once your
+identity provider works; the render refuses a configuration with no
+sign-in method at all. Locked out:
+
+```sh
+kubectl -n stackradar exec deploy/stackradar-client -- node scripts/admin-reset-password.mjs admin@stackradar.local
+```
+
+The local sign-in's per-address rate limit is in-process; with more than
+one client replica, rate-limit `POST /api/auth/local` at the ingress.
+
+## Reaching it
+
+Port-forward (the default; NOTES prints the commands), `ingress.*` or
+`httpRoute.*` — never both. Both route `/` to the client; `exposeApi: true`
+adds `/v1` to the server for uploading SBOMs from outside the cluster (the
+bundled scanner needs no route). `externalUrl` pins the browser-facing URL
+when it cannot be derived from the hostname.
+
+## OpenShift compatibility
+
+The chart targets parity with OpenShift's `restricted-v2` SCC and the Pod
+Security Admission `restricted` profile. Every pod ships with
+`allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`,
+`runAsNonRoot: true`, `seccompProfile.type: RuntimeDefault`,
+`readOnlyRootFilesystem: true`, no host namespaces, no ports below 1024 and
+no `NodePort` default. OpenShift assigns UIDs per namespace, so null the
+pod-level contexts and let the SCC pick them:
+
+```yaml
+server:
+  podSecurityContext: ~
+client:
+  podSecurityContext: ~
+postgresql:
+  podSecurityContext: ~
+```
+
+## Upgrading
+
+```sh
+helm upgrade stackradar oci://ghcr.io/lockdep/helm-charts/stackradar \
+  --namespace stackradar --version <version> -f my-values.yaml
+```
+
+A `helm upgrade` with no value changes changes nothing: no Secret is
+rewritten, no key rotates, and the start-up migration finds nothing to do.
+Image tags default to the chart's `appVersion`; a tag from another major is
+refused by the render.
+
+{{ template "chart.valuesSection" . }}
+
+{{ template "helm-docs.versionFooter" . }}

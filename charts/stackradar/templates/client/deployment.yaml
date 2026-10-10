@@ -1,0 +1,127 @@
+{{- $envFrom := .Values.client.extraEnvFrom -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stackradar.client.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "client") | nindent 4 }}
+  {{- with .Values.client.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.client.autoscaling.enabled }}
+  replicas: {{ .Values.client.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.client.revisionHistoryLimit }}
+  strategy: {{- toYaml .Values.client.deployment.strategy | nindent 4 }}
+  selector:
+    matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "client") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "client") | nindent 8 }}
+        {{- include "stackradar.databaseClientLabel" . | nindent 8 }}
+        {{- with .Values.client.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.client.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "stackradar.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: {{ .Values.enableServiceLinks }}
+      terminationGracePeriodSeconds: {{ .Values.client.terminationGracePeriodSeconds }}
+      {{- with .Values.client.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.client.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $waitInit := include "stackradar.waitForPostgresInitContainer" . }}
+      {{- if or $waitInit .Values.client.initContainers }}
+      initContainers:
+        {{- $waitInit | nindent 8 }}
+        {{- with .Values.client.initContainers }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: client
+          image: {{ include "stackradar.client.image" . }}
+          imagePullPolicy: {{ .Values.client.image.pullPolicy }}
+          {{- with .Values.client.securityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.client.command }}
+          command: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.client.args }}
+          args: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources: {{- toYaml .Values.client.resources | nindent 12 }}
+          env:
+            {{- include "stackradar.clientEnv" (dict "ctx" . "role" "client") | nindent 12 }}
+          {{- with $envFrom }}
+          envFrom: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              port: http
+              path: /api/health/live
+            {{- toYaml .Values.client.probes.liveness | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              port: http
+              path: /api/health/ready
+            {{- toYaml .Values.client.probes.readiness | nindent 12 }}
+          startupProbe:
+            httpGet:
+              scheme: HTTP
+              port: http
+              path: /api/health/ready
+            {{- toYaml .Values.client.probes.startup | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+            {{- with .Values.client.additionalVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with .Values.client.extraContainers }}
+        {{- tpl (toYaml .) $ | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.client.tmpSizeLimit | quote }}
+        # Next.js writes its image-optimiser / ISR cache here at runtime.
+        - name: next-cache
+          emptyDir:
+            sizeLimit: {{ .Values.client.nextCacheSizeLimit | quote }}
+        {{- with .Values.client.additionalVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.client.tolerations | default .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.client.nodeSelector | default .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.client.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.client.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
