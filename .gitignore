@@ -1,0 +1,7 @@
+# Packaged subcharts are restored by `make deps` (helm dependency build);
+# Chart.lock is committed, the tarballs are not.
+charts/*/charts/*.tgz
+.cr-release-packages/
+.cr-index/
+*.tgz
+.DS_Store

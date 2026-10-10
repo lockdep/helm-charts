@@ -1,0 +1,53 @@
+# Quickstart values: the bare `helm install` IS the quickstart — the bundled
+# Postgres, the scanner and the fixture secrets are all defaults. This file
+# only trims the resource requests so the install fits a laptop cluster
+# (kind, minikube, Docker Desktop) and keeps the OSV mirror to Alpine, which
+# bootstraps in about two minutes and covers most of what a kind cluster runs.
+#
+#   helm install stackradar oci://ghcr.io/lockdep/helm-charts/stackradar \
+#     --namespace stackradar --create-namespace \
+#     -f https://raw.githubusercontent.com/lockdep/helm-charts/main/charts/stackradar/values-quickstart.yaml
+#
+# NOT for production: a wider ecosystem list needs the default requests, and
+# the fixture secrets need replacing before anything but a laptop can reach it.
+---
+vulnerabilityData:
+  osvEcosystems: Alpine
+
+server:
+  nodeOptions: "--max-old-space-size=768"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+client:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+
+postgresql:
+  persistence:
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 1Gi
+
+scanner:
+  watcher:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+        ephemeral-storage: 1Gi
+      limits:
+        memory: 1Gi
+        ephemeral-storage: 6Gi

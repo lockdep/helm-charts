@@ -1,0 +1,126 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $instance := .Release.Name }}
+{{- $partOf := include "stackradar.name" . -}}
+---
+# Default-deny ingress to every pod this chart renders (the scanner subchart
+# and the bundled Postgres carry their own policies). The allowances follow.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "stackradar.componentFullname" (dict "ctx" . "suffix" "default-deny-ingress") }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.commonLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $instance }}
+      app.kubernetes.io/part-of: {{ $partOf }}
+  policyTypes:
+    - Ingress
+---
+# The server accepts the client (every /api call), the scanner (/v1) and,
+# optionally, whoever may scrape /metrics or reach /v1 from outside.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "stackradar.componentFullname" (dict "ctx" . "suffix" "server-ingress") }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "server") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "server") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "client") | nindent 14 }}
+        {{- if .Values.scanner.enabled }}
+        - podSelector:
+            matchLabels: {{- include "stackradar.scanner.podSelectorLabels" . | nindent 14 }}
+        {{- end }}
+        {{- if and (or (and .Values.ingress.enabled .Values.ingress.exposeApi) (and .Values.httpRoute.enabled .Values.httpRoute.exposeApi)) .Values.networkPolicy.ingressFrom }}
+        {{- toYaml .Values.networkPolicy.ingressFrom | nindent 8 }}
+        {{- end }}
+        {{- with .Values.networkPolicy.metricsFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 3001
+---
+# The client accepts the ingress controller named in `ingressFrom`, or
+# anything when nothing is named — a default-deny with no entry would lock
+# out the controller the chart cannot know.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "stackradar.componentFullname" (dict "ctx" . "suffix" "client-ingress") }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "client") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "client") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - {{- with .Values.networkPolicy.ingressFrom }}
+      from: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# Egress for every pod this chart renders: DNS, the database, TCP 443 to
+# anywhere (the OSV/EPSS/KEV feeds, container registries, chart
+# repositories), the client's call to the server, plus `extraEgress`.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "stackradar.componentFullname" (dict "ctx" . "suffix" "egress") }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.commonLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $instance }}
+      app.kubernetes.io/part-of: {{ $partOf }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - ports:
+        - protocol: TCP
+          port: 443
+    {{- if .Values.postgresql.enabled }}
+    - to:
+        - podSelector:
+            matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- else }}
+    # An external database on the stock port; use `extraEgress` for another
+    # port (a managed database on 25060, say) and narrow with `to` if you can.
+    - ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
+    - to:
+        - podSelector:
+            matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "server") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 3001
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

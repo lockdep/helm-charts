@@ -1,0 +1,154 @@
+suite: routing
+release:
+  name: stackradar
+  namespace: sr-test
+tests:
+  - it: neither Ingress nor HTTPRoute renders by default
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: ingress.yaml
+      - hasDocuments:
+          count: 0
+        template: httproute.yaml
+
+  - it: Ingress routes / to the client only, with hostname, class and TLS
+    set:
+      ingress.enabled: true
+      ingress.hostname: sr.example.test
+      ingress.ingressClassName: nginx
+      ingress.tls:
+        - secretName: sr-tls
+          hosts:
+            - sr.example.test
+    template: ingress.yaml
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.rules[0].host
+          value: sr.example.test
+      - equal:
+          path: spec.tls[0].secretName
+          value: sr-tls
+      - lengthEqual:
+          path: spec.rules[0].http.paths
+          count: 1
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: stackradar-client
+
+  - it: Ingress with exposeApi adds /v1 to the server ahead of /
+    set:
+      ingress.enabled: true
+      ingress.exposeApi: true
+    template: ingress.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /v1
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: stackradar-server
+      - equal:
+          path: spec.rules[0].http.paths[1].path
+          value: /
+
+  - it: a routed hostname pins AUTH_URL and APP_URL (https when TLS is set)
+    set:
+      ingress.enabled: true
+      ingress.hostname: sr.example.test
+      ingress.tls:
+        - secretName: sr-tls
+          hosts:
+            - sr.example.test
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_URL
+            value: "https://sr.example.test"
+        template: client/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_TRUST_HOST
+          any: true
+        template: client/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_URL
+            value: "https://sr.example.test"
+        template: server/deployment.yaml
+
+  - it: an http-only Ingress derives http
+    set:
+      ingress.enabled: true
+      ingress.hostname: sr.example.test
+    template: server/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_URL
+            value: "http://sr.example.test"
+
+  - it: externalUrl overrides the derived URL (trailing slash trimmed)
+    set:
+      ingress.enabled: true
+      ingress.hostname: sr.example.test
+      externalUrl: https://sr.corp.example/
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_URL
+            value: "https://sr.corp.example"
+        template: server/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_URL
+            value: "https://sr.corp.example"
+        template: client/deployment.yaml
+
+  - it: HTTPRoute renders with parentRefs and hostnames
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames:
+        - sr.example.test
+      httpRoute.parentRefs:
+        - name: shared-gateway
+          namespace: gateway-system
+    template: httproute.yaml
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].name
+          value: shared-gateway
+      - equal:
+          path: spec.hostnames[0]
+          value: sr.example.test
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: stackradar-client
+
+  - it: HTTPRoute with no parentRefs fails fast
+    set:
+      httpRoute.enabled: true
+    template: httproute.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "httpRoute.enabled=true requires httpRoute.parentRefs; a HTTPRoute with no parentRefs is silently rejected by Gateway controllers"
+
+  - it: Ingress + HTTPRoute together fails fast
+    set:
+      ingress.enabled: true
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: gw
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "ingress.enabled and httpRoute.enabled are mutually exclusive; both routes would target the same Services. Pick one."

@@ -1,0 +1,55 @@
+{{- include "stackradar.validate.routing" . }}
+{{- if .Values.ingress.enabled }}
+{{- $clientSvc := include "stackradar.client.fullname" . }}
+{{- $serverSvc := include "stackradar.server.fullname" . -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "stackradar.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- include "stackradar.commonLabels" . | nindent 4 }}
+    {{- with .Values.ingress.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.ingress.ingressClassName }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- range . }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.hostname | quote }}
+      http:
+        paths:
+          {{- if .Values.ingress.exposeApi }}
+          # The scanner's surface — SBOM uploads from outside the cluster.
+          # Everything a browser needs goes through the client.
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $serverSvc }}
+                port:
+                  name: http
+          {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $clientSvc }}
+                port:
+                  name: http
+{{- end }}

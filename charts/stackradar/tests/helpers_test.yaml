@@ -1,0 +1,83 @@
+suite: helpers
+release:
+  name: stackradar
+  namespace: sr-test
+templates:
+  - server/deployment.yaml
+tests:
+  - it: fullname is truncated so every component name stays under 63 chars
+    release:
+      name: stackradar-prod-platform-team-please-truncate-it
+      namespace: sr-test
+    asserts:
+      - matchRegex:
+          path: metadata.name
+          pattern: '^.{1,63}$'
+      - notMatchRegex:
+          path: metadata.name
+          pattern: '-$'
+    set:
+      scanner.stackradar.apiUrl: http://whatever.sr-test.svc:8080
+
+  - it: the server image defaults to the chart appVersion on GHCR
+    chart:
+      appVersion: 0.4.2
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/lockdep/stackradar-server:0.4.2
+
+  - it: a digest tag renders the @sha256 form and skips the major check
+    set:
+      server.image.tag: "sha256:1abc"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/lockdep/stackradar-server@sha256:1abc
+
+  - it: a tag from another major is rejected
+    set:
+      server.image.tag: "1.0.0"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'image tag "1.0.0" is not supported by this chart version'
+
+  - it: snapshot and latest tags are a deliberate choice and pass
+    set:
+      server.image.tag: snapshot
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/lockdep/stackradar-server:snapshot
+
+  - it: a per-component registry beats image.registry
+    set:
+      image.registry: ghcr.io
+      server.image.registry: registry.corp.example
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: '^registry\.corp\.example/lockdep/stackradar-server:'
+
+  - it: podAnnotations stamp the pod template, annotations stamp the Deployment
+    set:
+      server.podAnnotations:
+        kubectl.kubernetes.io/restartedAt: "2026-10-10T10:00:00Z"
+      server.annotations:
+        argocd.argoproj.io/sync-wave: "5"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]
+          value: "2026-10-10T10:00:00Z"
+      - notExists:
+          path: metadata.annotations["kubectl.kubernetes.io/restartedAt"]
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "5"
+
+  - it: nulling a podSecurityContext suppresses the pod-level block (the OpenShift override)
+    set:
+      server.podSecurityContext: ~
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext

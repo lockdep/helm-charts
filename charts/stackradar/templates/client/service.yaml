@@ -1,0 +1,21 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stackradar.client.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "client") | nindent 4 }}
+  {{- with .Values.client.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.client.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.client.service.port }}
+      targetPort: http
+      protocol: TCP
+      {{- if not (kindIs "invalid" .Values.client.service.nodePort) }}
+      nodePort: {{ .Values.client.service.nodePort }}
+      {{- end }}
+  selector: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "client") | nindent 4 }}

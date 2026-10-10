@@ -1,0 +1,77 @@
+suite: networkpolicy
+release:
+  name: stackradar
+  namespace: sr-test
+tests:
+  - it: the bundled Postgres admits only this release's database clients, whatever networkPolicy.enabled says
+    template: postgresql/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["stackradar.io/database-client"]
+          value: "true"
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/instance"]
+          value: stackradar
+
+  - it: the Postgres policy is rendered even with networkPolicy.enabled=false
+    set:
+      networkPolicy.enabled: false
+    template: postgresql/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: every chart-managed database client carries the label the Postgres policy admits
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["stackradar.io/database-client"]
+          value: "true"
+        template: server/deployment.yaml
+      - equal:
+          path: spec.template.metadata.labels["stackradar.io/database-client"]
+          value: "true"
+        template: client/deployment.yaml
+
+  - it: the worker and the sync Jobs carry the label too (split)
+    set:
+      topology: split
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["stackradar.io/database-client"]
+          value: "true"
+        template: worker/deployment.yaml
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.labels["stackradar.io/database-client"]
+          value: "true"
+        template: sync/cronjobs.yaml
+        documentIndex: 0
+
+  - it: networkPolicy.enabled renders deny-by-default plus the allowances
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingressFrom:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+    template: networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 4
+      - equal:
+          path: metadata.name
+          value: stackradar-default-deny-ingress
+        documentIndex: 0
+      - equal:
+          path: spec.ingress[0].from[1].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: watcher
+        documentIndex: 1
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: ingress-nginx
+        documentIndex: 2
+      - equal:
+          path: spec.egress[2].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: postgresql
+        documentIndex: 3

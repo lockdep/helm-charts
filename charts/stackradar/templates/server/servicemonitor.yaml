@@ -1,0 +1,27 @@
+{{- if .Values.metrics.serviceMonitor.enabled -}}
+---
+# The OSV mirror's health gauges are served by the long-lived server, read
+# out of `osv_sync_state` on each scrape: whatever wrote that row — the
+# in-process scheduler or a CronJob — the server can report on it.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "stackradar.server.fullname" . }}
+  namespace: {{ .Values.metrics.serviceMonitor.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "stackradar.componentLabels" (dict "ctx" . "component" "server") | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "server") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+{{- end }}

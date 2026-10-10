@@ -1,0 +1,43 @@
+# ct install #1: the bare install with the laptop sizing of values-quickstart.yaml.
+# `fullnameOverride` because ct generates a random release name and the
+# acceptance commands assume `stackradar-*` resource names; the scanner's
+# apiUrl is set to match (the default names the release, not the override).
+fullnameOverride: stackradar
+vulnerabilityData:
+  osvEcosystems: Alpine
+server:
+  nodeOptions: "--max-old-space-size=768"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+client:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+postgresql:
+  persistence:
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 1Gi
+scanner:
+  stackradar:
+    apiUrl: "http://stackradar-server.{{ .Release.Namespace }}.svc:8080"
+  watcher:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+        ephemeral-storage: 1Gi
+      limits:
+        memory: 1Gi
+        ephemeral-storage: 6Gi

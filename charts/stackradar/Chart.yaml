@@ -1,0 +1,67 @@
+apiVersion: v2
+name: stackradar
+# The chart's own version, decoupled from the application's: a chart-only
+# change (a new value, a fixed template) bumps this and nothing else.
+# Chart-level breaking changes are listed in UPGRADING.md.
+version: 0.1.0
+type: application
+# The server and client image tag the chart installs by default. Both images
+# are built from one repository and released together under one number
+# (lockdep/stackradar, open-source plan step 14), so one appVersion covers
+# both. `server.image.tag` / `client.image.tag` override it; a tag from
+# another major is refused (templates/_images.tpl).
+appVersion: "0.1.0"
+# The oldest control plane the chart is rendered for. Gateway API and
+# `seccompProfile` need less; 1.25 is where the scanner's informer client
+# starts, and the scanner is part of the install. `-0` lets pre-release
+# cluster versions (`v1.29.0-eks-…`) satisfy the constraint.
+kubeVersion: ">=1.25.0-0"
+description: |-
+  StackRadar Community Edition: what is running in your Kubernetes cluster,
+  which of it is vulnerable, and what to move to. Installs the server, the
+  UI, a bundled Postgres and the scanner, already scanning the cluster it
+  lands in.
+home: https://stackradar.io
+sources:
+  - https://github.com/lockdep/helm-charts/tree/main/charts/stackradar
+  - https://github.com/lockdep/stackradar
+icon: https://stackradar.io/apple-icon
+keywords:
+  - sbom
+  - security
+  - supply-chain
+  - vulnerabilities
+  - kubernetes
+maintainers:
+  - name: StackRadar
+    email: support@stackradar.io
+    url: https://stackradar.io
+dependencies:
+  # The agent that scans the cluster, from its own repository and registry.
+  # `scanner.*` in values.yaml is this subchart's values; `scanner.enabled`
+  # is the condition. 0.5.0 is the first version that can be installed as a
+  # subchart (its schema allows `global` and `enabled`) and that renders
+  # `stackradar.apiUrl` through `tpl`, which is how the chart points it at
+  # the server Service of the same release.
+  - name: stackradar-scanner
+    version: 0.5.0
+    repository: oci://ghcr.io/lockdep/charts
+    condition: scanner.enabled
+    alias: scanner
+annotations:
+  artifacthub.io/category: security
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: Self-hosting guide
+      url: https://github.com/lockdep/stackradar/blob/main/docs/self-hosting/helm.md
+    - name: Chart upgrade notes
+      url: https://github.com/lockdep/helm-charts/blob/main/charts/stackradar/UPGRADING.md
+    - name: StackRadar release notes
+      url: https://github.com/lockdep/stackradar/releases
+  artifacthub.io/images: |
+    - name: stackradar-server
+      image: ghcr.io/lockdep/stackradar-server:0.1.0
+    - name: stackradar-client
+      image: ghcr.io/lockdep/stackradar-client:0.1.0
+    - name: postgres
+      image: docker.io/library/postgres:18-alpine

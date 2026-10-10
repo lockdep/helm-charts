@@ -1,0 +1,225 @@
+suite: defaults
+release:
+  name: stackradar
+  namespace: sr-test
+tests:
+  - it: stock values render the expected document set (monolith, bundled Postgres, scanner on)
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: server/deployment.yaml
+      - hasDocuments:
+          count: 1
+        template: client/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: worker/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: sync/cronjobs.yaml
+      - hasDocuments:
+          count: 1
+        template: postgresql/statefulset.yaml
+      - hasDocuments:
+          count: 1
+        template: postgresql/networkpolicy.yaml
+      - hasDocuments:
+          count: 1
+        template: secrets/app.yaml
+      - hasDocuments:
+          count: 1
+        template: secrets/postgresql.yaml
+      - hasDocuments:
+          count: 0
+        template: secrets/db.yaml
+      - hasDocuments:
+          count: 0
+        template: secrets/auth.yaml
+      - hasDocuments:
+          count: 0
+        template: server/initializer-job.yaml
+      - hasDocuments:
+          count: 0
+        template: networkpolicy.yaml
+      - hasDocuments:
+          count: 1
+        template: scanner/networkpolicy.yaml
+      - hasDocuments:
+          count: 1
+        template: serviceaccount.yaml
+
+  - it: resource names are <release>-<component>
+    asserts:
+      - equal:
+          path: metadata.name
+          value: stackradar-server
+        template: server/deployment.yaml
+      - equal:
+          path: metadata.name
+          value: stackradar-client
+        template: client/service.yaml
+      - equal:
+          path: metadata.name
+          value: stackradar-postgresql
+        template: postgresql/statefulset.yaml
+
+  - it: server pod ships the documented hardening defaults
+    template: server/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
+          value: ALL
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1001
+      - notExists:
+          path: spec.template.spec.hostNetwork
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+
+  - it: client pod ships the same hardening defaults
+    template: client/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
+          value: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+
+  - it: bundled Postgres runs as the image's postgres user on a read-only root filesystem
+    template: postgresql/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 70
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
+          value: ALL
+      - equal:
+          path: spec.persistentVolumeClaimRetentionPolicy.whenDeleted
+          value: Retain
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: '^docker\.io/library/postgres:18-alpine@sha256:[a-f0-9]{64}$'
+
+  - it: probes target /api/health/live and /api/health/ready on both apps, with a startup probe
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /api/health/live
+        template: server/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /api/health/ready
+        template: server/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /api/health/ready
+        template: server/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /api/health/ready
+        template: client/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /api/health/live
+        template: client/deployment.yaml
+
+  - it: pods migrate at start-up by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MIGRATE_ON_START
+            value: "true"
+        template: server/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MIGRATE_ON_START
+            value: "true"
+        template: client/deployment.yaml
+
+  - it: the bundled database URL is assembled in the pod from the password Secret
+    template: server/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_URL
+            value: "postgresql://stackradar:$(STACKRADAR_DB_PASSWORD)@stackradar-postgresql.sr-test.svc:5432/stackradar?sslmode=prefer"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: STACKRADAR_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: stackradar-postgresql
+                key: password
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-postgres
+
+  - it: the client points at the server Service and trusts the Host header without a hostname
+    template: client/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EXPRESS_API_URL
+            value: "http://stackradar-server:8080"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_TRUST_HOST
+            value: "true"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_URL
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_LOCAL_ENABLED
+            value: "true"
+
+  - it: the ServiceAccount is kept across uninstalls and mounts no token
+    template: serviceaccount.yaml
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - equal:
+          path: automountServiceAccountToken
+          value: false

@@ -1,0 +1,137 @@
+{{- include "stackradar.validate.database" . }}
+{{- if .Values.postgresql.enabled -}}
+---
+# The bundled database: one replica, a retained volume, reachable only from
+# this release's pods (postgresql/networkpolicy.yaml). It runs the official
+# image as its unprivileged `postgres` user on a read-only root filesystem;
+# the socket directory, /tmp and /dev/shm are the writable exceptions, and
+# the data lives on the claim below.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "stackradar.postgresql.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "stackradar.componentLabels" (dict "ctx" . "component" "postgresql") | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ include "stackradar.postgresql.fullname" . }}
+  # Neither `helm uninstall` nor a scale-down deletes the data volume.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 8 }}
+        {{- with .Values.postgresql.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.postgresql.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: {{ .Values.enableServiceLinks }}
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.postgresql.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.postgresql.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          image: {{ include "stackradar.postgresql.image" . }}
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          {{- with .Values.postgresql.securityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.postgresql.args }}
+          args: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.auth.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.auth.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stackradar.postgresql.secretName" . }}
+                  key: {{ include "stackradar.postgresql.passwordKey" . }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1
+            {{- toYaml .Values.postgresql.probes.readiness | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1
+            {{- toYaml .Values.postgresql.probes.liveness | nindent 12 }}
+          resources: {{- toYaml .Values.postgresql.resources | nindent 12 }}
+          volumeMounts:
+            # The postgres:18 image keeps PGDATA under /var/lib/postgresql/18/docker;
+            # mounting the pre-18 path /var/lib/postgresql/data would leave the
+            # cluster outside the volume.
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: run
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.postgresql.shmSizeLimit | quote }}
+      {{- with .Values.postgresql.tolerations | default .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.nodeSelector | default .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels: {{- include "stackradar.selectorLabels" (dict "ctx" . "component" "postgresql") | nindent 10 }}
+        annotations:
+          helm.sh/resource-policy: keep
+          {{- with .Values.postgresql.persistence.annotations }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+      spec:
+        accessModes: {{- toYaml .Values.postgresql.persistence.accessModes | nindent 10 }}
+        {{- with .Values.postgresql.persistence.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.persistence.size | quote }}
+{{- end }}

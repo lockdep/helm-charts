@@ -1,0 +1,157 @@
+suite: scanner
+release:
+  name: stackradar
+  namespace: sr-test
+tests:
+  - it: the server reads the bootstrap credential from the scanner subchart's Secret
+    template: server/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOOTSTRAP_CLUSTER_ID
+            valueFrom:
+              secretKeyRef:
+                name: stackradar-scanner
+                key: cluster-id
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOOTSTRAP_CLUSTER_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: stackradar-scanner
+                key: api-key
+
+  - it: the subchart renders that Secret and points the agent at this release's server
+    asserts:
+      - equal:
+          path: metadata.name
+          value: stackradar-scanner
+        template: charts/scanner/templates/secret.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: STACKRADAR_API_URL
+            value: "http://stackradar-server.sr-test.svc:8080"
+        template: charts/scanner/templates/deployment.yaml
+
+  - it: the scanner's egress to the server is allowed whenever its own policy is on
+    template: scanner/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/name"]
+          value: scanner
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: watcher
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: server
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 3001
+
+  - it: the egress allowance follows the subchart's networkPolicy.enabled
+    set:
+      scanner.networkPolicy.enabled: false
+    template: scanner/networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: scanner.enabled=false renders no scanner objects and no bootstrap variables
+    set:
+      scanner.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: scanner/networkpolicy.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOOTSTRAP_CLUSTER_ID
+          any: true
+        template: server/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOOTSTRAP_CLUSTER_API_KEY
+          any: true
+        template: server/deployment.yaml
+
+  - it: an existing bootstrap Secret is read by the server with its own keys
+    set:
+      scanner.stackradar.existingSecret: my-bootstrap
+      scanner.stackradar.existingSecretKeyApiKey: key
+      scanner.stackradar.existingSecretKeyClusterId: id
+    template: server/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOOTSTRAP_CLUSTER_ID
+            valueFrom:
+              secretKeyRef:
+                name: my-bootstrap
+                key: id
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOOTSTRAP_CLUSTER_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: my-bootstrap
+                key: key
+
+  - it: an existing bootstrap Secret plus a changed inline key fails fast
+    set:
+      scanner.stackradar.existingSecret: my-bootstrap
+      scanner.stackradar.apiKey: my-own-key-value-123
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "scanner.stackradar.existingSecret is set; leave scanner.stackradar.{apiKey} at their defaults to avoid ambiguity about which credential is in effect"
+
+  - it: a blanked bootstrap key fails with the commands that generate one
+    set:
+      scanner.stackradar.apiKey: ""
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "the scanner needs a bootstrap credential and the chart never generates one"
+
+  - it: a non-UUID cluster id fails fast
+    set:
+      scanner.stackradar.clusterId: not-a-uuid
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "scanner.stackradar.clusterId must be a UUID"
+
+  - it: a short key fails fast
+    set:
+      scanner.stackradar.apiKey: short
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "scanner.stackradar.apiKey must be at least 16 characters; the server treats a shorter key as a typo (openssl rand -hex 32)"
+
+  - it: the default apiUrl is checked against the real Service when fullnameOverride moves it
+    set:
+      fullnameOverride: sr
+    template: server/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "scanner.stackradar.apiUrl is at its default, which names http://stackradar-server.sr-test.svc:8080, but this release's server Service is http://sr-server.sr-test.svc:8080 (fullnameOverride or server.service.port changed it). Set scanner.stackradar.apiUrl=http://sr-server.sr-test.svc:8080"
+
+  - it: a deliberately overridden apiUrl is trusted
+    set:
+      fullnameOverride: sr
+      scanner.stackradar.apiUrl: https://sr-server.sr-test.svc:8443
+    template: server/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 1

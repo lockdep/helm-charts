@@ -1,0 +1,4 @@
+initializer:
+  enabled: true
+  annotations:
+    helm.sh/hook-delete-policy: "before-hook-creation,hook-succeeded"

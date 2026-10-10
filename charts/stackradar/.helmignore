@@ -1,0 +1,6 @@
+/tests/
+/ci/
+README.md.gotmpl
+.DS_Store
+*.swp
+*.bak

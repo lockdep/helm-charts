@@ -1,0 +1,269 @@
+# ct install #2, the production-like combination:
+# * split topology (worker Deployment + sync CronJobs)
+# * external database from an existing Secret (a Postgres rendered via
+#   extraObjects stands in for a managed one), application secrets from an
+#   existing Secret, bootstrap credential from an existing Secret
+# * the pre-install initializer Jobs
+# * Ingress with the API exposed, 2 server replicas, PDBs on every Deployment
+# * NetworkPolicies, ServiceMonitor off (no CRD on kind)
+# * the scanner on, with its own NetworkPolicy
+fullnameOverride: stackradar
+topology: split
+externalUrl: https://stackradar.example.test
+
+postgresql:
+  enabled: false
+database:
+  existingSecret:
+    name: stackradar-ci-db
+    urlKey: connection
+
+secrets:
+  existingSecret:
+    name: stackradar-ci-secrets
+
+initializer:
+  enabled: true
+  initContainers:
+    - name: wait-for-postgres
+      image: postgres:18-alpine
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        runAsNonRoot: true
+        runAsUser: 70
+      command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres.{{ .Release.Namespace }}.svc.cluster.local -p 5432; do
+            echo "waiting for postgres"
+            sleep 2
+          done
+
+vulnerabilityData:
+  osvEcosystems: Alpine
+
+server:
+  replicaCount: 2
+  nodeOptions: "--max-old-space-size=512"
+  pdb:
+    enabled: true
+    minAvailable: ~
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 768Mi
+  initContainers:
+    - name: wait-for-postgres
+      image: postgres:18-alpine
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        runAsNonRoot: true
+        runAsUser: 70
+      command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres.{{ .Release.Namespace }}.svc.cluster.local -p 5432; do
+            echo "waiting for postgres"
+            sleep 2
+          done
+
+client:
+  replicaCount: 2
+  pdb:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+  initContainers:
+    - name: wait-for-postgres
+      image: postgres:18-alpine
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        runAsNonRoot: true
+        runAsUser: 70
+      command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres.{{ .Release.Namespace }}.svc.cluster.local -p 5432; do
+            echo "waiting for postgres"
+            sleep 2
+          done
+
+worker:
+  pdb:
+    enabled: true
+    minAvailable: ~
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 768Mi
+
+sync:
+  osv:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+  osvBootstrap:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 768Mi
+
+ingress:
+  enabled: true
+  exposeApi: true
+  hostname: stackradar.example.test
+  tls:
+    - secretName: stackradar-ci-tls
+      hosts:
+        - stackradar.example.test
+
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  extraEgress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ci-postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+
+scanner:
+  stackradar:
+    apiUrl: "http://stackradar-server.{{ .Release.Namespace }}.svc:8080"
+    existingSecret: stackradar-ci-bootstrap
+  watcher:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+        ephemeral-storage: 1Gi
+      limits:
+        memory: 1Gi
+        ephemeral-storage: 6Gi
+
+# What a real install provisions beforehand, rendered here so ct can
+# install the chart on an empty kind cluster. Public fixtures, CI only.
+extraObjects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: stackradar-ci-db
+      namespace: "{{ .Release.Namespace }}"
+      annotations:
+        helm.sh/hook: pre-install,pre-upgrade
+        helm.sh/hook-weight: "-5"
+        helm.sh/hook-delete-policy: before-hook-creation
+    type: Opaque
+    stringData:
+      connection: "postgresql://stackradar:ci-password@postgres.{{ .Release.Namespace }}.svc.cluster.local:5432/stackradar?sslmode=prefer"
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: stackradar-ci-secrets
+      namespace: "{{ .Release.Namespace }}"
+      annotations:
+        helm.sh/hook: pre-install,pre-upgrade
+        helm.sh/hook-weight: "-5"
+        helm.sh/hook-delete-policy: before-hook-creation
+    type: Opaque
+    stringData:
+      internal-service-key: ci-internal-service-key-not-secret
+      api-key-encryption-key: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      auth-secret: ci-auth-secret-not-secret
+      admin-password: admin
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: stackradar-ci-bootstrap
+      namespace: "{{ .Release.Namespace }}"
+    type: Opaque
+    stringData:
+      cluster-id: 1b1b1b1b-2c2c-4d3d-8e4e-5f5f5f5f5f5f
+      api-key: ci-bootstrap-scanner-key-not-secret
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: postgres
+      namespace: "{{ .Release.Namespace }}"
+      annotations:
+        helm.sh/hook: pre-install,pre-upgrade
+        helm.sh/hook-weight: "-5"
+        helm.sh/hook-delete-policy: before-hook-creation
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: "{{ .Release.Name }}"
+          app.kubernetes.io/component: ci-postgres
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/instance: "{{ .Release.Name }}"
+            app.kubernetes.io/component: ci-postgres
+        spec:
+          containers:
+            - name: postgres
+              image: postgres:18-alpine
+              env:
+                - name: POSTGRES_DB
+                  value: stackradar
+                - name: POSTGRES_USER
+                  value: stackradar
+                - name: POSTGRES_PASSWORD
+                  value: ci-password
+              ports:
+                - name: postgres
+                  containerPort: 5432
+                  protocol: TCP
+              readinessProbe:
+                exec:
+                  command: ["pg_isready", "-U", "stackradar"]
+                initialDelaySeconds: 5
+                periodSeconds: 5
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: postgres
+      namespace: "{{ .Release.Namespace }}"
+      annotations:
+        helm.sh/hook: pre-install,pre-upgrade
+        helm.sh/hook-weight: "-5"
+        helm.sh/hook-delete-policy: before-hook-creation
+    spec:
+      type: ClusterIP
+      selector:
+        app.kubernetes.io/instance: "{{ .Release.Name }}"
+        app.kubernetes.io/component: ci-postgres
+      ports:
+        - port: 5432
+          targetPort: 5432
