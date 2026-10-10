@@ -72,7 +72,11 @@ jobs:
         scan-type: config
         format: sarif
         output: misconfig.sarif
+    # Code scanning accepts uploads on public repositories (or with Advanced
+    # Security); while this repository is private the scan still runs and
+    # fails the job on findings, only the upload is skipped.
     - name: Upload Misconfiguration Scan Results
+      if: ${{ !github.event.repository.private }}
       uses: github/codeql-action/upload-sarif@956f09c2ef1926b580554b9014cfb8a51abf89dd # tag=codeql-bundle-v2.16.6
       with:
         sarif_file: misconfig.sarif
