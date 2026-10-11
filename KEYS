@@ -5,8 +5,36 @@ with. Import it and export a keyring Helm can read:
     gpg --export helm@stackradar.io > /tmp/lockdep-keyring.gpg
     helm pull oci://ghcr.io/lockdep/helm-charts/stackradar --prov --verify --keyring /tmp/lockdep-keyring.gpg
 
-No key has been generated yet. Before the first release: `gpg --full-generate-key` (RSA 4096, uid "StackRadar Helm
-<helm@stackradar.io>"), paste `gpg --armor --export helm@stackradar.io`
-below, and store the private key and passphrase as the GPG_PRIVATE_KEY and
-GPG_PASSPHRASE secrets and GPG_KEY_NAME variable of the `release`
-environment in this repository's settings (.github/workflows/helm-release.yml).
+Key ID: E54A64704943D7D2
+Fingerprint: E99F 22A4 4160 2E61 9EF6 BDDA E54A 6470 4943 D7D2
+uid: StackRadar Helm <helm@stackradar.io>
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mQINBGrL6KMBEACpiTGhc0H9IU5ojFjX14v+Ongyo/pIU8dD3/vvHk3FQllbtJtC
+fTXB7UXwPZJKUHAVqGTLJi8e2gsW00dtjCJRAuHCTMHXP2mZlW9JU8JD+BpC+4Mj
+3M1AyzfBr5ObirKMnMM5NS99e2hSY3RRM2lK/7/9O+d4TGVbh1P4GHqN0W2xqkc5
+ZSebAJp0Mec+yPRUZcZrgClI+XGcEtfk9e5Xq08NAb9Leu65qwObaGB/F0/fX2/1
+HECOh7jNTdRytVxexOGAMMi+MkK/+ZqR1/bQcTNR5ERipAeXY4ZIoR+2rEwdlZ+F
+tNcYYwiNQeKnDr0pdNjjRblqj8D3mK+wMug0BoiElLvaSIPhZ1C7Iv/W/vABSlhy
+GXOGDut5pa6CyoSelqeq+yvP4JaNlCPReJpS6qcakRzj1DSnYMCia4xGSworuu3c
+/cPBEwZr1gBvK2kX6RaY6kiajFPZ+LpcZ+ESng+9Q7FOjWgpMRLGq//Wk/svPT34
+LKxwjD6ybZlUTR17LBxl8+MUJ7JhOLdoGZqZ0fKa93q5DwBDyTVLrkrP+OpcXNur
+6lNDDFnClNtxV4syTmeb4or5EtTlsAyI3RTME9qvIMD3ZTOb9+ibc5UYIFMdjgO9
+Q/iLxurczi7k5IBOGpG+evv5IApKpyfup2EvdAAsWylODDd7MCuOdNvINQARAQAB
+tCRTdGFja1JhZGFyIEhlbG0gPGhlbG1Ac3RhY2tyYWRhci5pbz6JAm0EEwEIAFcW
+IQTpnyKkQWAuYZ72vdrlSmRwSUPX0gUCasvooxsUgAAAAAAEAA5tYW51MiwyLjUr
+MS4xMiwwLDMCGwMFCwkIBwICIgIGFQoJCAsCBBYCAwECHgcCF4AACgkQ5UpkcElD
+19IK1Q//bt+sM1Yc0mrDOueMXifw3wwgbReWqEbIi4Hwy7q5FlP5o3TfQwwVVia9
++gvMi/8fX3rAkECVoR5Om5evFwBd+3f9lw94jyFnmhwN4Q7MP6lKzd2wNIV3ouSi
+YLvNd59f/TXzq1sD0EcjIUTFwqu8V3G/NjDcDIpYKKcrAHvyvSjocX6qKnbFwn8E
+R2ira057gpOqmsKr08ehKRI6WXM4/DFkYkxQXIjqjDusCV7a7x2xsUH4a8vQzgLV
+1MJpeGkkdL9sRCkd+bdpR46mjFAvj9rRwTGmmW6ZHX+TvObl877TupN6/j7aQz2o
+yvbK5JNtwG4vwNUkUCEg4Ug4JABpo4qyuwQZc//BqcR1wjF0dcZaxo8HWKnu/wbS
+6rycBa6Ul6aJPgSpyzssbZy9pFbwO6tWBYHUOfkQmzQil4jEFg3XbaN2is6EuSPM
+mNGDUGI5LOusC1pSubWItmDD+HcV6M4WXRpx/qjFK+Jo+oYEVCTO6xR9ho5urv5k
+HZCgMkclvpLmypFopbySztRPlgi4O/h3uYd7xvCYMtXzJemPXnVZj+jABtXxo58t
+/2gZWQhuhXGz/C4j6VMByvMDzJ9ytRUeT+K4yUUpz4QCWjBM193xHm2AS7yWlvl6
+zcfdz7cjD1TCdPAoCaXT4tZHepQcORKGPwq0iQvAR7uVQz8uCoQ=
+=bxot
+-----END PGP PUBLIC KEY BLOCK-----
