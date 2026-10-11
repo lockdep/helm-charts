@@ -7,7 +7,7 @@ version: 0.1.0
 type: application
 # The server and client image tag the chart installs by default. Both images
 # are built from one repository and released together under one number
-# (lockdep/stackradar, open-source plan step 14), so one appVersion covers
+# (lockdep/stackradar), so one appVersion covers
 # both. `server.image.tag` / `client.image.tag` override it; a tag from
 # another major is refused (templates/_images.tpl).
 appVersion: "0.1.0"

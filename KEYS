@@ -5,8 +5,7 @@ with. Import it and export a keyring Helm can read:
     gpg --export helm@stackradar.io > /tmp/lockdep-keyring.gpg
     helm pull oci://ghcr.io/lockdep/helm-charts/stackradar --prov --verify --keyring /tmp/lockdep-keyring.gpg
 
-No key has been generated yet. Before the first release (open-source plan
-step 14): `gpg --full-generate-key` (RSA 4096, uid "StackRadar Helm
+No key has been generated yet. Before the first release: `gpg --full-generate-key` (RSA 4096, uid "StackRadar Helm
 <helm@stackradar.io>"), paste `gpg --armor --export helm@stackradar.io`
 below, and store the private key and passphrase as the GPG_PRIVATE_KEY and
 GPG_PASSPHRASE secrets and GPG_KEY_NAME variable of the `release`

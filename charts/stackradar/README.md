@@ -458,6 +458,7 @@ refused by the render.
 | postgresql.securityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
 | postgresql.shmSizeLimit | string | `"256Mi"` | Size limit of the `/dev/shm` memory-backed volume. Kubernetes' default 64 MiB is too small for Postgres' parallel workers on a large mirror. |
 | postgresql.tolerations | list | `[]` |  |
+| publicApiUrl | string | `""` | The URL the server's public API (`/v1`) is reachable at from *another* cluster, e.g. `https://stackradar.example.com` when `ingress.exposeApi` / `httpRoute.exposeApi` routes `/v1` there, or a separate host of your own. It is what the UI renders into the scanner install command (`PUBLIC_API_URL`). Empty: derived from `externalUrl` when the route exposes the API; otherwise the UI shows a placeholder, never a host that is not yours. The bundled scanner never needs it: it reaches the server in-cluster. |
 | scanner.enabled | bool | `true` |  |
 | scanner.networkPolicy.enabled | bool | `true` | The subchart's own policy (ingress: kubelet probes only; egress: DNS, the API server, TCP 443). When on, this chart adds the one rule it lacks — egress to the server pods — so the scanner can report in-cluster. |
 | scanner.stackradar.apiKey | string | `"stackradar-fixture-bootstrap-scanner-key"` | The key the scanner authenticates with and the server accepts for that cluster (`BOOTSTRAP_CLUSTER_API_KEY`). PUBLIC FIXTURE: with it, any pod in the cluster that can reach the server Service can upload SBOMs as the local cluster. Generate your own with `openssl rand -hex 32`. The subchart renders both into the Secret `<release>-stackradar-scanner`, which the server reads too. |
@@ -491,7 +492,7 @@ refused by the render.
 | server.deployment.strategy.rollingUpdate.maxUnavailable | int | `1` |  |
 | server.deployment.strategy.type | string | `"RollingUpdate"` |  |
 | server.extraContainers | list | `[]` |  |
-| server.extraEnv | list | `[]` | Extra env for the server (and the worker and sync Jobs in `split`). Don't set chart-managed variables (DATABASE_URL, STACKRADAR_EDITION, TOPOLOGY, MIGRATE_*, APP_URL, INTERNAL_SERVICE_KEY, API_KEY_ENCRYPTION_KEY, BOOTSTRAP_*, OSV_ECOSYSTEMS, *_CRON, ARTIFACT_HUB_SYNC_ENABLED). |
+| server.extraEnv | list | `[]` | Extra env for the server (and the worker and sync Jobs in `split`). Don't set chart-managed variables (DATABASE_URL, STACKRADAR_EDITION, TOPOLOGY, MIGRATE_*, APP_URL, PUBLIC_API_URL, INTERNAL_SERVICE_KEY, API_KEY_ENCRYPTION_KEY, BOOTSTRAP_*, OSV_ECOSYSTEMS, *_CRON, ARTIFACT_HUB_SYNC_ENABLED). |
 | server.extraEnvFrom | list | `[]` |  |
 | server.image.pullPolicy | string | `"IfNotPresent"` |  |
 | server.image.registry | string | `""` | Override `image.registry` for the server. |

@@ -1,0 +1,19 @@
+# gitleaks configuration: `gitleaks dir .` must exit 0 here. The one hit is
+# the public evaluation fixture the chart installs by default (values.yaml
+# says so next to it, and NOTES.txt warns on every install that keeps it),
+# repeated in the CI values. Keep this list to that.
+title = "StackRadar Helm charts"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "The chart's public fixture encryption key (replace before relying on an install)"
+paths = [
+  '''^charts/stackradar/values\.yaml$''',
+  '''^charts/stackradar/ci/.*-values\.yaml$''',
+]
+regexes = [
+  '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef''',
+]
+matchCondition = "AND"

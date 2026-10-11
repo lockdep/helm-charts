@@ -95,6 +95,52 @@ tests:
             name: APP_URL
             value: "http://sr.example.test"
 
+  - it: exposeApi advertises the route as PUBLIC_API_URL on client and server
+    set:
+      ingress.enabled: true
+      ingress.exposeApi: true
+      ingress.hostname: sr.example.test
+      ingress.tls:
+        - secretName: sr-tls
+          hosts:
+            - sr.example.test
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PUBLIC_API_URL
+            value: "https://sr.example.test"
+        template: client/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PUBLIC_API_URL
+            value: "https://sr.example.test"
+        template: server/deployment.yaml
+
+  - it: without an exposed API no PUBLIC_API_URL is set, so the UI shows a placeholder
+    set:
+      ingress.enabled: true
+      ingress.hostname: sr.example.test
+    template: client/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PUBLIC_API_URL
+          any: true
+
+  - it: publicApiUrl names a separate API host (trailing slash trimmed)
+    set:
+      publicApiUrl: https://api.sr.corp.example/
+    template: client/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PUBLIC_API_URL
+            value: "https://api.sr.corp.example"
+
   - it: externalUrl overrides the derived URL (trailing slash trimmed)
     set:
       ingress.enabled: true

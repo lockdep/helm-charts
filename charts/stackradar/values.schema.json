@@ -39,6 +39,10 @@
       "type": "string",
       "pattern": "^(https?://.+)?$"
     },
+    "publicApiUrl": {
+      "type": "string",
+      "pattern": "^(https?://.+)?$"
+    },
     "logLevel": {
       "enum": [
         "trace",

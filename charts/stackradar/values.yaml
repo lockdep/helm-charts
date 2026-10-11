@@ -19,6 +19,16 @@ image:
 # reached by port-forward and the client trusts the Host header instead.
 externalUrl: ""
 
+# -- The URL the server's public API (`/v1`) is reachable at from *another*
+# cluster, e.g. `https://stackradar.example.com` when `ingress.exposeApi` /
+# `httpRoute.exposeApi` routes `/v1` there, or a separate host of your own.
+# It is what the UI renders into the scanner install command
+# (`PUBLIC_API_URL`). Empty: derived from `externalUrl` when the route
+# exposes the API; otherwise the UI shows a placeholder, never a host that is
+# not yours. The bundled scanner never needs it: it reaches the server
+# in-cluster.
+publicApiUrl: ""
+
 # -- `LOG_LEVEL` for the server, worker and client.
 logLevel: info
 
@@ -435,7 +445,7 @@ server:
   priorityClassName: ""
   # -- Extra env for the server (and the worker and sync Jobs in `split`).
   # Don't set chart-managed variables (DATABASE_URL, STACKRADAR_EDITION,
-  # TOPOLOGY, MIGRATE_*, APP_URL, INTERNAL_SERVICE_KEY, API_KEY_ENCRYPTION_KEY,
+  # TOPOLOGY, MIGRATE_*, APP_URL, PUBLIC_API_URL, INTERNAL_SERVICE_KEY, API_KEY_ENCRYPTION_KEY,
   # BOOTSTRAP_*, OSV_ECOSYSTEMS, *_CRON, ARTIFACT_HUB_SYNC_ENABLED).
   extraEnv: []
   extraEnvFrom: []

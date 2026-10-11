@@ -154,3 +154,17 @@ app.kubernetes.io/component: watcher
 {{- define "stackradar.hasExternalUrl" }}
 {{- if or .Values.externalUrl .Values.ingress.enabled .Values.httpRoute.enabled -}}true{{- end }}
 {{- end -}}
+
+{{/*
+  The API origin a scanner in another cluster can reach, or "" when none is
+  known. `publicApiUrl` wins; otherwise the route's hostname when it exposes
+  `/v1`. Deliberately empty for a port-forward install: the UI then shows a
+  placeholder in the install command rather than a host that is not yours.
+*/}}
+{{- define "stackradar.publicApiUrl" }}
+{{- if .Values.publicApiUrl }}
+{{- trimSuffix "/" .Values.publicApiUrl }}
+{{- else if or (and .Values.ingress.enabled .Values.ingress.exposeApi) (and .Values.httpRoute.enabled .Values.httpRoute.exposeApi) }}
+{{- include "stackradar.externalUrl" . }}
+{{- end }}
+{{- end -}}

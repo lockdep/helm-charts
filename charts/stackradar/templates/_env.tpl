@@ -174,6 +174,10 @@ http://{{ "{{" }} .Release.Name {{ "}}" }}-server.{{ "{{" }} .Release.Namespace 
 {{- end }}
 - name: APP_URL
   value: {{ include "stackradar.externalUrl" $ctx | quote }}
+{{- with include "stackradar.publicApiUrl" $ctx }}
+- name: PUBLIC_API_URL
+  value: {{ . | quote }}
+{{- end }}
 - name: NODE_OPTIONS
   value: {{ $v.server.nodeOptions | quote }}
 {{- if $v.scanner.enabled }}
@@ -240,6 +244,10 @@ http://{{ "{{" }} .Release.Name {{ "}}" }}-server.{{ "{{" }} .Release.Namespace 
 {{- end }}
 - name: EXPRESS_API_URL
   value: {{ printf "http://%s:%d" (include "stackradar.server.fullname" $ctx) (int $v.server.service.port) | quote }}
+{{- with include "stackradar.publicApiUrl" $ctx }}
+- name: PUBLIC_API_URL
+  value: {{ . | quote }}
+{{- end }}
 - name: INTERNAL_SERVICE_KEY
   valueFrom:
     secretKeyRef:
