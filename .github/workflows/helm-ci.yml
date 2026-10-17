@@ -59,7 +59,7 @@ jobs:
         python-version: "3.11"
         check-latest: true
     - name: Set up Chart Testing
-      uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # tag=v2.8.0
+      uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # tag=v2.9.0
     - name: Restore chart dependencies
       run: make deps
     - name: Lint Chart
@@ -99,7 +99,7 @@ jobs:
         python-version: "3.11"
         check-latest: true
     - name: Set up Chart Testing
-      uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # tag=v2.8.0
+      uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # tag=v2.9.0
     - name: Create Kind Cluster
       uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # tag=v1.15.0
     - name: Restore chart dependencies
