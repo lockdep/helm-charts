@@ -3,14 +3,14 @@ name: stackradar
 # The chart's own version, decoupled from the application's: a chart-only
 # change (a new value, a fixed template) bumps this and nothing else.
 # Chart-level breaking changes are listed in UPGRADING.md.
-version: 0.1.0
+version: 0.2.0
 type: application
 # The server and client image tag the chart installs by default. Both images
 # are built from one repository and released together under one number
 # (lockdep/stackradar), so one appVersion covers
 # both. `server.image.tag` / `client.image.tag` override it; a tag from
 # another major is refused (templates/_images.tpl).
-appVersion: "0.1.0"
+appVersion: "0.2.0"
 # The oldest control plane the chart is rendered for. Gateway API and
 # `seccompProfile` need less; 1.25 is where the scanner's informer client
 # starts, and the scanner is part of the install. `-0` lets pre-release
@@ -39,12 +39,12 @@ maintainers:
 dependencies:
   # The agent that scans the cluster, from its own repository and registry.
   # `scanner.*` in values.yaml is this subchart's values; `scanner.enabled`
-  # is the condition. 0.5.0 is the first version that can be installed as a
+  # is the condition. 0.5.0 was the first version that could be installed as a
   # subchart (its schema allows `global` and `enabled`) and that renders
   # `stackradar.apiUrl` through `tpl`, which is how the chart points it at
   # the server Service of the same release.
   - name: stackradar-scanner
-    version: 0.5.0
+    version: 0.7.0
     repository: oci://ghcr.io/lockdep/charts
     condition: scanner.enabled
     alias: scanner
@@ -60,8 +60,8 @@ annotations:
       url: https://github.com/lockdep/stackradar/releases
   artifacthub.io/images: |
     - name: stackradar-server
-      image: ghcr.io/lockdep/stackradar-server:0.1.0
+      image: ghcr.io/lockdep/stackradar-server:0.2.0
     - name: stackradar-client
-      image: ghcr.io/lockdep/stackradar-client:0.1.0
+      image: ghcr.io/lockdep/stackradar-client:0.2.0
     - name: postgres
       image: docker.io/library/postgres:18-alpine
