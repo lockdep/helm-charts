@@ -1,6 +1,6 @@
 # stackradar
 
-![Version: 0.2.0](https://img.shields.io/badge/Version-0.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.0](https://img.shields.io/badge/AppVersion-0.2.0-informational?style=flat-square)
+![Version: 0.2.1](https://img.shields.io/badge/Version-0.2.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.2.0](https://img.shields.io/badge/AppVersion-0.2.0-informational?style=flat-square)
 
 StackRadar Community Edition: what is running in your Kubernetes cluster,
 which of it is vulnerable, and what to move to. Installs the server, the
@@ -26,7 +26,7 @@ Kubernetes: `>=1.25.0-0`
 
 | Repository | Name | Version |
 |------------|------|---------|
-| oci://ghcr.io/lockdep/charts | scanner(stackradar-scanner) | 0.7.0 |
+| oci://ghcr.io/lockdep/charts | scanner(stackradar-scanner) | 0.7.1 |
 
 > [!IMPORTANT]
 > **Read the upgrade notes before you upgrade `appVersion`.**
