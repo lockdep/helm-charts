@@ -5,6 +5,18 @@ Chart-level breaking changes, by chart version. Application-level changes
 [StackRadar release notes](https://github.com/lockdep/stackradar/releases);
 read those for every version you skip past, not just the target one.
 
+## 0.2.1
+
+No chart-level breaking change and no application change: `appVersion` stays
+at 0.2.0 and no value was renamed, removed or given a new default.
+
+- The bundled `stackradar-scanner` subchart moves from 0.7.0 to 0.7.1, which
+  stops the scanner pod from being restarted once by its liveness probe on a
+  cold install (its startup retries used to count against the liveness limit
+  while the server beside it was still pulling its image). Nothing to do
+  beyond `helm upgrade`; see the
+  [scanner 0.7.1 release notes](https://github.com/lockdep/stackradar-scanner/releases/tag/v0.7.1).
+
 ## 0.2.0
 
 No chart-level breaking change: no value was renamed, removed or given a new

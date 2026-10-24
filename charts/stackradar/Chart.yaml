@@ -3,7 +3,7 @@ name: stackradar
 # The chart's own version, decoupled from the application's: a chart-only
 # change (a new value, a fixed template) bumps this and nothing else.
 # Chart-level breaking changes are listed in UPGRADING.md.
-version: 0.2.0
+version: 0.2.1
 type: application
 # The server and client image tag the chart installs by default. Both images
 # are built from one repository and released together under one number
@@ -44,7 +44,7 @@ dependencies:
   # `stackradar.apiUrl` through `tpl`, which is how the chart points it at
   # the server Service of the same release.
   - name: stackradar-scanner
-    version: 0.7.0
+    version: 0.7.1
     repository: oci://ghcr.io/lockdep/charts
     condition: scanner.enabled
     alias: scanner

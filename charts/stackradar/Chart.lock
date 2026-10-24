@@ -1,6 +1,6 @@
 dependencies:
 - name: stackradar-scanner
   repository: oci://ghcr.io/lockdep/charts
-  version: 0.7.0
-digest: sha256:6672255e91462ca90578f721bf840821a0f67b75dfe02a2dd5d2f873ca247184
-generated: "2026-10-20T19:39:02.40199+02:00"
+  version: 0.7.1
+digest: sha256:e854f75fec60b794a1b267f07e162155bad28664751390bdf35aefb4193bf0c4
+generated: "2026-10-24T20:22:54.582493+02:00"
