@@ -3,7 +3,7 @@ name: stackradar
 # The chart's own version, decoupled from the application's: a chart-only
 # change (a new value, a fixed template) bumps this and nothing else.
 # Chart-level breaking changes are listed in UPGRADING.md.
-version: 0.2.1
+version: 0.2.2
 type: application
 # The server and client image tag the chart installs by default. Both images
 # are built from one repository and released together under one number

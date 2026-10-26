@@ -5,6 +5,19 @@ Chart-level breaking changes, by chart version. Application-level changes
 [StackRadar release notes](https://github.com/lockdep/stackradar/releases);
 read those for every version you skip past, not just the target one.
 
+## 0.2.2
+
+No chart-level breaking change and no application change: `appVersion` stays
+at 0.2.0 and no value was renamed, removed or given a new default.
+
+- The install notes now say where the first admin password comes from. With
+  `secrets.existingSecret.name` set they print the `kubectl` command that
+  reads it from that Secret (`adminPasswordKey`); with your own
+  `auth.local.adminPassword` they refer to that value without printing it;
+  only with neither do they say `admin`. Before, they always said
+  "default `admin`", which was wrong for an install that brings its own
+  Secret. Nothing to do beyond `helm upgrade`.
+
 ## 0.2.1
 
 No chart-level breaking change and no application change: `appVersion` stays
