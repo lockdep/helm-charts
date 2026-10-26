@@ -27,8 +27,23 @@ Open the UI:
 {{- end }}
 {{- if .Values.auth.local.enabled }}
 
+{{- if .Values.secrets.existingSecret.name }}
+
+Log in as `{{ .Values.auth.local.adminEmail }}` with the first admin password
+from the Secret `{{ .Values.secrets.existingSecret.name }}`:
+
+  kubectl --namespace {{ .Release.Namespace }} get secret {{ .Values.secrets.existingSecret.name }} \
+    -o jsonpath='{.data.{{ include "stackradar.secrets.adminPasswordKey" . }}}' | base64 -d; echo
+{{- else if ne .Values.auth.local.adminPassword "admin" }}
+
 Log in as `{{ .Values.auth.local.adminEmail }}` with the password you set in
-`auth.local.adminPassword` (default `admin`). You will be asked to change it.
+`auth.local.adminPassword`.
+{{- else }}
+
+Log in as `{{ .Values.auth.local.adminEmail }}` with the password `admin`.
+{{- end }}
+
+The password is used once, for the first login, which asks you to change it.
 Do this IMMEDIATELY, ideally before exposing the install beyond localhost.
 {{- else }}
 

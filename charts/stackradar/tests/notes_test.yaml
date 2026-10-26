@@ -55,3 +55,31 @@ tests:
           pattern: https://github\.com/lockdep/stackradar/releases/tag/v9\.9\.9
       - matchRegexRaw:
           pattern: UPGRADING\.md
+
+  - it: the default admin login names the password admin
+    asserts:
+      - matchRegexRaw:
+          pattern: with the password `admin`\.
+      - notMatchRegexRaw:
+          pattern: get secret
+
+  - it: an inline admin password is referred to, not printed
+    set:
+      auth.local.adminPassword: s3cret-value
+    asserts:
+      - matchRegexRaw:
+          pattern: the password you set in\s+`auth\.local\.adminPassword`
+      - notMatchRegexRaw:
+          pattern: s3cret-value
+
+  - it: an existingSecret admin login prints the command that reads it
+    set:
+      secrets.existingSecret.name: stackradar-credentials
+      secrets.existingSecret.adminPasswordKey: first-admin
+    asserts:
+      - matchRegexRaw:
+          pattern: get secret stackradar-credentials
+      - matchRegexRaw:
+          pattern: "jsonpath='\\{\\.data\\.first-admin\\}'"
+      - notMatchRegexRaw:
+          pattern: password `admin`
