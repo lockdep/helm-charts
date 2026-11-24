@@ -5,6 +5,58 @@ entries:
       artifacthub.io/category: security
       artifacthub.io/images: |
         - name: stackradar-server
+          image: ghcr.io/lockdep/stackradar-server:0.4.0
+        - name: stackradar-client
+          image: ghcr.io/lockdep/stackradar-client:0.4.0
+        - name: postgres
+          image: docker.io/library/postgres:18-alpine
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Self-hosting guide
+          url: https://github.com/lockdep/stackradar/blob/main/docs/self-hosting/helm.md
+        - name: Chart upgrade notes
+          url: https://github.com/lockdep/helm-charts/blob/main/charts/stackradar/UPGRADING.md
+        - name: StackRadar release notes
+          url: https://github.com/lockdep/stackradar/releases
+    apiVersion: v2
+    appVersion: 0.4.0
+    created: "2026-11-24T15:51:54.02836194Z"
+    dependencies:
+    - alias: scanner
+      condition: scanner.enabled
+      name: stackradar-scanner
+      repository: oci://ghcr.io/lockdep/charts
+      version: 0.7.1
+    description: 'StackRadar Community Edition: what is running in your Kubernetes
+      cluster, which of it is vulnerable, and what to move to. Installs the server,
+      the UI, a bundled Postgres and the scanner, already scanning the cluster it
+      lands in.'
+    digest: 3a3e8720b88a03bd6b88fcaa60cf4ecc7dbc736c27a0a42c7dc2d7f999bb570d
+    home: https://stackradar.io
+    icon: https://stackradar.io/apple-icon
+    keywords:
+    - sbom
+    - security
+    - supply-chain
+    - vulnerabilities
+    - kubernetes
+    kubeVersion: '>=1.25.0-0'
+    maintainers:
+    - email: support@stackradar.io
+      name: StackRadar
+      url: https://stackradar.io
+    name: stackradar
+    sources:
+    - https://github.com/lockdep/helm-charts/tree/main/charts/stackradar
+    - https://github.com/lockdep/stackradar
+    type: application
+    urls:
+    - https://github.com/lockdep/helm-charts/releases/download/stackradar-0.4.0/stackradar-0.4.0.tgz
+    version: 0.4.0
+  - annotations:
+      artifacthub.io/category: security
+      artifacthub.io/images: |
+        - name: stackradar-server
           image: ghcr.io/lockdep/stackradar-server:0.2.0
         - name: stackradar-client
           image: ghcr.io/lockdep/stackradar-client:0.2.0
@@ -209,4 +261,4 @@ entries:
     urls:
     - https://github.com/lockdep/helm-charts/releases/download/stackradar-0.1.0/stackradar-0.1.0.tgz
     version: 0.1.0
-generated: "2026-10-26T19:11:02.959550155Z"
+generated: "2026-11-24T15:51:54.028376973Z"
