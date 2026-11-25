@@ -5,6 +5,16 @@ Chart-level breaking changes, by chart version. Application-level changes
 [StackRadar release notes](https://github.com/lockdep/stackradar/releases);
 read those for every version you skip past, not just the target one.
 
+## 0.4.1
+
+No chart-level breaking change: no value was renamed, removed or given a new
+default, so `helm upgrade` with the values you already set is enough.
+
+- `appVersion` moves from 0.4.0 to 0.4.1. The app release carries no schema
+  migration, so this upgrade rolls back by setting the previous chart version.
+  See the
+  [StackRadar 0.4.1 release notes](https://github.com/lockdep/stackradar/releases/tag/v0.4.1).
+
 ## 0.4.0
 
 No chart-level breaking change: no value was renamed, removed or given a new
